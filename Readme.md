@@ -201,7 +201,7 @@ personal-skill-monitor/
 
 ## Prebuilt releases (AppImage / Windows)
 
-- **Linux AppImage** — [Available now!](dist/PersonalSkillMonitor-x86_64.AppImage) (Self-contained, just run it).
+- **Linux AppImage** — [Available now!](https://github.com/Fridman86/Personal-Skill-Monitor/releases/latest) (Self-contained, just run it).
 - **Windows EXE** — Planned.
 
 These builds use a shared EVE developer application. Check the **Releases** section on GitHub for the latest version.
