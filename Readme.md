@@ -1,7 +1,12 @@
 # Personal Skill Monitor
 
+
 ![Main window1](Screenshots/Screenshot_1.png)
+
+
+
 ![Main window2](Screenshots/Screenshot_2.png)
+
 
 Personal Skill Monitor is a desktop application for EVE Online that displays character skills and the skill queue via EVE ESI/SSO, with convenient filters and multi‑format export.
 
