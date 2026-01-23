@@ -1,11 +1,18 @@
-# Python / venv
+# Python
 __pycache__/
+*.pyc
 .venv/
 
-# Local config and tokens
+# Local config
 config.env
 tokens.json
-
-# Runtime data
 exports/
-*.pyc
+
+# Build artifacts
+dist/
+build/
+AppDir/
+*.AppImage
+
+# PyInstaller
+*.spec
