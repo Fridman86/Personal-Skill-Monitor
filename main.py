@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from src.utils.config import Config
 from src.gui.app import EVEApp
 

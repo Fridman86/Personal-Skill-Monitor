@@ -144,10 +144,16 @@ EVE_SCOPES=esi-skills.read_skills.v1 esi-skills.read_skillqueue.v1
 **Important:** `config.env` must stay local and **must not** be committed to Git.  
 It is already listed in `.gitignore`.
 
-***
+## How to Run
 
-## Running the application
+### 1. AppImage (Linux)
+Download the `PersonalSkillMonitor-x86_64.AppImage` from the releases, then:
+```bash
+chmod +x PersonalSkillMonitor-x86_64.AppImage
+./PersonalSkillMonitor-x86_64.AppImage
+```
 
+### 2. Run from Source
 From the project directory:
 
 ```bash
@@ -195,15 +201,10 @@ personal-skill-monitor/
 
 ## Prebuilt releases (AppImage / Windows)
 
-Planned:
+- **Linux AppImage** — [Available now!](dist/PersonalSkillMonitor-x86_64.AppImage) (Self-contained, just run it).
+- **Windows EXE** — Planned.
 
-- **Linux AppImage** — download, `chmod +x`, run.  
-- **Windows EXE** — built with `pyinstaller`.
-
-These builds will use a shared EVE developer application configured by the author (Client ID/Secret are **not** stored in the public source).  
-Advanced users can still build their own binaries with their own ESI app via `config.env`.
-
-Check the **Releases** section on GitHub.
+These builds use a shared EVE developer application. Check the **Releases** section on GitHub for the latest version.
 
 ***
 

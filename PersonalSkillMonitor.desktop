@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Personal Skill Monitor
+Comment=EVE Online skill monitor using ESI/SSO
+Exec=PersonalSkillMonitor
+Icon=icon
+Categories=Utility;
+Terminal=false
