@@ -55,6 +55,6 @@ linuxdeploy --appdir "$APPDIR" \
     --output appimage
 
 # Final cleanup and move
-mv "$APP_NAME"*.AppImage "$DIST_DIR/PersonalSkillMonitor-x86_64.AppImage"
+mv *.AppImage "$DIST_DIR/PersonalSkillMonitor-x86_64.AppImage"
 
 echo "Build complete! AppImage is in $DIST_DIR/"
