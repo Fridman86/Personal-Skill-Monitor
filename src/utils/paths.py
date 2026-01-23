@@ -63,6 +63,13 @@ class PathManager:
         return path
 
     @staticmethod
+    def get_cache_dir():
+        """Returns the directory where cached ESI data should be stored."""
+        path = PathManager.get_app_data_dir() / "cache"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @staticmethod
     def get_icon_path():
         """Returns the path to the application icon."""
         # Check bundled first (AppImage/PyInstaller)

@@ -122,8 +122,8 @@ class EVEApp(tk.Tk):
         ttk.Button(self.action_bar, text=" ＋  Add Character", style="Nav.TButton", command=self._add_character).pack(fill=tk.X)
         ttk.Button(self.action_bar, text=" －  Remove", style="Nav.TButton", command=self._remove_character).pack(fill=tk.X)
         ttk.Button(self.action_bar, text=" ↻  Refresh Data", style="Nav.TButton", command=self._refresh_data).pack(fill=tk.X)
+        ttk.Button(self.action_bar, text=" ℹ  About", style="Nav.TButton", command=self._on_about_click).pack(fill=tk.X)
         ttk.Button(self.action_bar, text=" ⏻  Quit", style="Nav.TButton", command=self._on_quit).pack(fill=tk.X)
-        ttk.Button(self.action_bar, text=" ☕  Buy me a coffee", style="Nav.TButton", command=self._on_coffee_click).pack(fill=tk.X)
 
         self.char_tree = ttk.Treeview(self.sidebar, show="tree", selectmode="browse", height=10)
         self.char_tree.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
@@ -135,14 +135,26 @@ class EVEApp(tk.Tk):
         
         # Top Bar (Title & Export) - Polished
         self.top_strip = ttk.Frame(content_frame, style="Toolbar.TFrame")
-        self.top_strip.pack(fill=tk.X, pady=(0, 15))
+        self.top_strip.pack(fill=tk.X, pady=(0, 5))
         
         top_bar = ttk.Frame(self.top_strip)
-        top_bar.pack(fill=tk.X, padx=10, pady=10)
+        top_bar.pack(fill=tk.X, padx=10, pady=5)
         
         self.char_title_var = tk.StringVar(value="No Character Selected")
         ttk.Label(top_bar, textvariable=self.char_title_var, font=("Segoe UI", 14, "bold")).pack(side=tk.LEFT)
         
+        # Stats Panel (New)
+        self.stats_frame = ttk.Frame(self.top_strip)
+        self.stats_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
+        
+        self.total_sp_var = tk.StringVar(value="Total SP: 0")
+        self.unallocated_sp_var = tk.StringVar(value="Unallocated SP: 0")
+        self.cache_status_var = tk.StringVar(value="")
+        
+        ttk.Label(self.stats_frame, textvariable=self.total_sp_var, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(self.stats_frame, textvariable=self.unallocated_sp_var, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 15))
+        ttk.Label(self.stats_frame, textvariable=self.cache_status_var, font=("Segoe UI", 8, "italic"), foreground="#888").pack(side=tk.RIGHT)
+
         # Compact Export Toolbar
         export_frame = ttk.Frame(top_bar)
         export_frame.pack(side=tk.RIGHT)
@@ -194,6 +206,9 @@ class EVEApp(tk.Tk):
         if unknowns:
             print(f"[INFO] Unknown skills found: {', '.join(unknowns)}")
 
+    def _on_about_click(self):
+        messagebox.showinfo("About", "Personal Skill Monitor v0.1.1\n\nA lightweight desktop application for EVE Online talent management.\n\nAuthor: Fridman86\nGitHub: https://github.com/Fridman86/Personal-Skill-Monitor")
+
     def _on_quit(self):
         if messagebox.askyesno("Exit", "Exit Personal Skill Monitor?"):
             self.destroy()
@@ -242,6 +257,9 @@ class EVEApp(tk.Tk):
                     self.char_title_var.set("No Character Selected")
                     self.skill_view.set_skills([])
                     self.queue_view.set_queue([])
+                    self.total_sp_var.set("Total SP: 0")
+                    self.unallocated_sp_var.set("Unallocated SP: 0")
+                    self.cache_status_var.set("")
                 self._load_characters()
                 messagebox.showinfo("Success", f"Character '{char_data['name']}' removed.")
             else:
@@ -252,23 +270,50 @@ class EVEApp(tk.Tk):
             return
             
         try:
+            # Fetch all data (ESIClient handles caching)
             skills_data = self.esi_client.get_skills(self.current_char_id)
             queue_data = self.esi_client.get_skill_queue(self.current_char_id)
+            attr_data = self.esi_client.get_attributes(self.current_char_id)
+            
+            # Simple heuristic for live vs cached status
+            # For now we'll assume "Synced" if we get any data, 
+            # as ESIClient doesn't expose the status yet.
+            status_text = "Data synced with ESI"
             
             if skills_data:
                 self.current_skills = skills_data.get("skills", [])
                 self.skill_view.set_skills(self.current_skills)
                 
-                # Check for unknown skills after loading
-                unknowns = [s.get("skill_id") for s in self.current_skills if skills_db.is_unknown_skill(s.get("skill_id"))]
-                if unknowns:
-                    print(f"[INFO] Unknown skills for {self.char_title_var.get()}: {unknowns}")
+                total_sp = skills_data.get("total_sp", 0)
+                unallocated_sp = skills_data.get("unallocated_sp", 0)
+                self.total_sp_var.set(f"Total SP: {total_sp:,}")
+                self.unallocated_sp_var.set(f"Unallocated SP: {unallocated_sp:,}")
                 
             if queue_data:
                 self.current_queue = queue_data
-                self.queue_view.set_queue(self.current_queue)
+                self.queue_view.set_queue(self.current_queue, attr_data)
+                
+            if attr_data:
+                # Calculate training speed for current skill (if any)
+                # This is a simplification; ideally we'd need to know which 
+                # attributes the current skill uses. 
+                # For now, let's just show the attributes in the status bar/header.
+                int_ = attr_data.get("intelligence", 0)
+                mem = attr_data.get("memory", 0)
+                per = attr_data.get("perception", 0)
+                wil = attr_data.get("willpower", 0)
+                cha = attr_data.get("charisma", 0)
+                
+                attr_str = f"INT:{int_} MEM:{mem} PER:{per} WIL:{wil} CHA:{cha}"
+                self.queue_view.sp_min_var.set(f"Attributes: {attr_str}")
+            
+            self.cache_status_var.set(status_text)
+            
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to refresh data: {e}")
+            self.cache_status_var.set("Offline Mode / Error")
+            print(f"[ERROR] Refresh failed: {e}")
+            # Try to load whatever we have in cache if fetch crashed hard
+            pass
 
     def _on_coffee_click(self):
         webbrowser.open("https://buymeacoffee.com/ifridman")
