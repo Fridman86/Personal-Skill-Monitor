@@ -57,3 +57,26 @@ class PathManager:
         path = PathManager.get_app_data_dir() / "exports"
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @staticmethod
+    def get_icon_path():
+        """Returns the path to the application icon."""
+        # Check bundled first (AppImage/PyInstaller)
+        if getattr(sys, 'frozen', False) or os.getenv('APPIMAGE'):
+            # PyInstaller puts data in sys._MEIPASS
+            if hasattr(sys, '_MEIPASS'):
+                path = Path(sys._MEIPASS) / "icon.png"
+                if path.exists(): return path
+            
+            # Fallback for linuxdeploy layout
+            bundle_root = Path(sys.executable).parent
+            if (bundle_root / "icon.png").exists():
+                return bundle_root / "icon.png"
+            
+            app_dir = os.getenv('APPDIR')
+            if app_dir:
+                path = Path(app_dir) / "icon.png"
+                if path.exists(): return path
+        
+        # Default to source location for dev
+        return Path(__file__).parent.parent / "gui" / "assets" / "icon.png"
