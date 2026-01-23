@@ -1,0 +1,95 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller requests python-dotenv Pillow
+          
+      - name: Install linuxdeploy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2
+          wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          sudo mv linuxdeploy-x86_64.AppImage /usr/local/bin/linuxdeploy
+          
+      - name: Setup dummy config.env
+        run: echo "EVE_CLIENT_ID=dummy" > config.env
+          
+      - name: Build AppImage
+        run: bash build_appimage.sh
+        env:
+          VERSION: ${{ github.ref_name }}
+          
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist/PersonalSkillMonitor-x86_64.AppImage
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller requests python-dotenv Pillow
+          
+      - name: Setup dummy config.env
+        run: echo "EVE_CLIENT_ID=dummy" > config.env
+          
+      - name: Build EXE
+        run: |
+          pyinstaller --noconfirm --onedir --windowed --name "PersonalSkillMonitor" --add-data "src;src" --add-data "esi_client.py;." --add-data "config.env;." --add-data "src/gui/assets/icon.png;." --icon "src/gui/assets/icon.ico" main.py
+          
+      - name: Zip EXE folder
+        run: Compress-Archive -Path dist/PersonalSkillMonitor -DestinationPath PersonalSkillMonitor-Windows.zip
+        
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: PersonalSkillMonitor-Windows.zip
+
+  create-release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/linux-appimage/PersonalSkillMonitor-x86_64.AppImage
+            artifacts/windows-exe/PersonalSkillMonitor-Windows.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true

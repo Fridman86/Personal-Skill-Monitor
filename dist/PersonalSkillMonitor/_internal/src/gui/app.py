@@ -23,6 +23,15 @@ class EVEApp(tk.Tk):
         self.title("Personal Skill Monitor")
         self.geometry("1100x750")
         self.minsize(1000, 700)
+
+        # Set window icon
+        icon_path = PathManager.get_icon_path()
+        if icon_path.exists():
+            try:
+                self.icon_photo = tk.PhotoImage(file=str(icon_path))
+                self.wm_iconphoto(True, self.icon_photo)
+            except Exception as e:
+                print(f"[WARNING] Failed to load icon: {e}")
         
         self.current_char_id = None
         self.chars = []

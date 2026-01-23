@@ -8,12 +8,16 @@ class PathManager:
     @staticmethod
     def get_app_data_dir():
         """Returns the directory where user data should be stored."""
-        # If running in AppImage or similar, use ~/.config/PSM
-        if getattr(sys, 'frozen', False) or os.getenv('APPIMAGE'):
-            path = Path.home() / ".config" / "PSM"
+        if sys.platform == "win32":
+            # Windows: %APPDATA%/PSM
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                path = Path(appdata) / "PSM"
+            else:
+                path = Path.home() / "AppData" / "Roaming" / "PSM"
         else:
-            # For development, use project root
-            path = Path(__file__).parent.parent.parent
+            # Linux/Others: ~/.config/PSM
+            path = Path.home() / ".config" / "PSM"
             
         path.mkdir(parents=True, exist_ok=True)
         return path
