@@ -1,0 +1,11 @@
+# Python / venv
+__pycache__/
+.venv/
+
+# Local config and tokens
+config.env
+tokens.json
+
+# Runtime data
+exports/
+*.pyc
