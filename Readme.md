@@ -1,12 +1,8 @@
 # Personal Skill Monitor
 
+![Main window1](Screenshots/Screenshot1.png)
 
-![Main window1](Screenshots/Screenshot_1.png)
-
-
-
-![Main window2](Screenshots/Screenshot_2.png)
-
+![Main window2](Screenshots/Screenshot2.png)
 
 Personal Skill Monitor is a desktop application for EVE Online that displays character skills and the skill queue via EVE ESI/SSO, with convenient filters and multi‑format export.
 
@@ -20,6 +16,16 @@ The app is aimed at capsuleers who want a quick overview of their training witho
   - Login via official EVE SSO (OAuth2).
   - Support for multiple characters with easy switching in the sidebar.
   - Refresh tokens stored locally (in `tokens.json`).
+
+- **Skill Plan Manager (New!)**
+  - Create and manage custom training plans.
+  - **Auto-dependency resolution:** Adding a high-level skill automatically adds all required prerequisites in the correct order.
+  - Double-click a skill in the catalog to quickly add it to your plan.
+  - Export plans to clipboard or file.
+
+- **Smart Tooltips (New!)**
+  - Hover over any skill to see its full description.
+  - Uses an efficient polling mechanism that works even in complex UI layouts and AppImage builds.
 
 - **Skills View**
   - Full list of character skills with:
@@ -40,23 +46,13 @@ The app is aimed at capsuleers who want a quick overview of their training witho
 
 - **Data export**
   - Export **All Skills**, **Filtered Skills**, or **Skill Queue** to:
-    - CSV  
-    - JSON  
-    - XML  
-    - Text (human‑readable list)  
-    - Python (list of dicts)  
-    - Clipboard (copies data to the system clipboard)
+    - CSV, JSON, XML, Text, Python, Clipboard.
   - `Append date` option — adds `_YYYYMMDD` to the file name.
 
 - **UI**
-  - Dark EVE‑style theme.
-  - Left sidebar with characters and actions:
-    - Add Character
-    - Remove
-    - Refresh Data
-    - Quit
-    - Buy me a coffee
-  - Responsive layout that works well at common resolutions (1280×720 and above).
+  - Premium Dark EVE-style theme.
+  - Responsive layout with Sidebar navigation.
+  - Automatic DPI scaling and better multi-monitor support.
 
 ***
 

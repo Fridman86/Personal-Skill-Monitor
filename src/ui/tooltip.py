@@ -98,7 +98,17 @@ class TreeviewTooltip:
         self._dwell_ms = 0
         self._alive = True
         
-        self._log("Initialized TreeviewTooltip")
+        # Prevent multiple tooltips on same widget
+        if hasattr(treeview, "_tooltip_ref"):
+             try:
+                 old = treeview._tooltip_ref
+                 if old and old._alive:
+                     old._alive = False # Kill old instance
+             except:
+                 pass
+        treeview._tooltip_ref = self
+
+        self._log(f"Initialized TreeviewTooltip on {id(self.tree)}")
 
         # Cleanup on widget destroy
         treeview.bind("<Destroy>", self._on_destroy, add="+")
@@ -110,7 +120,7 @@ class TreeviewTooltip:
         try:
             with open("/tmp/psm_debug.log", "a") as f:
                 import datetime
-                f.write(f"{datetime.datetime.now()} {msg}\n")
+                f.write(f"{datetime.datetime.now()} [Tree:{id(self.tree)}] {msg}\n")
         except Exception:
             pass
 
@@ -159,13 +169,11 @@ class TreeviewTooltip:
                         self._current_row = row_id
                         self._dwell_ms = 0
                 else:
-                    # On heading or empty area
                     if self._current_row is not None:
                         self._hide()
                         self._current_row = None
                         self._dwell_ms = 0
             else:
-                # Mouse not over the treeview
                 if self._current_row is not None or self._tw is not None:
                     self._hide()
                     self._current_row = None
@@ -190,8 +198,9 @@ class TreeviewTooltip:
 
         try:
             item = self.tree.item(row_id)
-        except (tk.TclError, RuntimeError):
-            return
+        except (tk.TclError, RuntimeError) as e:
+             self._log(f"Error getting item {row_id}: {e}")
+             return
 
         values = item.get("values", ())
         if not values:
@@ -199,14 +208,18 @@ class TreeviewTooltip:
             if text:
                 values = (text,)
             else:
+                self._log(f"No values for row {row_id}")
                 return
 
         try:
             result = self.text_func(values)
-        except Exception:
+            # self._log(f"text_func result: {result}") # Verbose but helpful
+        except Exception as e:
+            self._log(f"text_func failed: {e}")
             return
 
         if not result:
+            # self._log("text_func returned empty/None")
             return
 
         if isinstance(result, tuple) and len(result) == 2:
@@ -221,7 +234,10 @@ class TreeviewTooltip:
         # Create tooltip window
         try:
             self._tw = tip = tk.Toplevel(self.tree)
+            # Use transient instead of overrideredirect for testing?
+            # tip.transient(self.tree) 
             tip.wm_overrideredirect(True)
+            
             try:
                 tip.attributes("-topmost", True)
             except Exception:
@@ -242,14 +258,14 @@ class TreeviewTooltip:
                          foreground=self.title_fg, relief="flat",
                          borderwidth=0, font=self.title_font,
                          wraplength=self.WRAP_LENGTH,
-                         padx=10, pady=(6, 0), anchor="w").pack(fill=tk.X)
+                         padx=10, pady=5, anchor="w").pack(fill=tk.X)
 
             tk.Label(inner, text=description,
                      justify=tk.LEFT, background=self.bg,
                      foreground=self.fg, relief="flat",
                      borderwidth=0, font=self.font,
                      wraplength=self.WRAP_LENGTH,
-                     padx=10, pady=(3 if title else 6, 6),
+                     padx=10, pady=5,
                      anchor="w").pack(fill=tk.X)
 
             # Position tooltip near cursor
@@ -267,7 +283,10 @@ class TreeviewTooltip:
                 y = mouse_y - tip_h - 8
 
             tip.wm_geometry(f"+{x}+{y}")
-        except (tk.TclError, RuntimeError):
+            self._log(f"Tooltip shown at +{x}+{y}")
+            
+        except (tk.TclError, RuntimeError) as e:
+            self._log(f"Tooltip creation failed: {e}")
             self._hide()
 
     def _hide(self):
