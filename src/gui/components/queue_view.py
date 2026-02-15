@@ -2,6 +2,8 @@ from datetime import datetime
 import tkinter as tk
 from tkinter import ttk
 from src.data import skills_db
+from src.data.skill_descriptions import get_skill_description
+from src.ui.tooltip import TreeviewTooltip
 
 class QueueView(ttk.Frame):
     def __init__(self, parent):
@@ -43,6 +45,20 @@ class QueueView(ttk.Frame):
 
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Skill description tooltip on row hover
+        def _queue_tip(values):
+            if not values or len(values) < 2:
+                return None
+            skill_name = str(values[1])
+            desc = get_skill_description(skill_name)
+            if desc:
+                level = str(values[3]) if len(values) > 3 else ""
+                title = f"{skill_name} → Level {level}" if level else skill_name
+                return (title, desc)
+            return None
+
+        TreeviewTooltip(self.tree, _queue_tip)
 
     def set_queue(self, queue_data, attributes_data=None):
         self.queue = queue_data

@@ -114,7 +114,7 @@ def setup_eve_dark_theme(style: ttk.Style):
                     background=BG_TABLE,
                     foreground=FG_DEFAULT,
                     fieldbackground=BG_TABLE,
-                    rowheight=26,
+                    rowheight=30,
                     borderwidth=0)
     style.configure("Treeview.Heading",
                     background=BG_HEADER,
@@ -134,7 +134,7 @@ def setup_eve_dark_theme(style: ttk.Style):
                     background=BG_SIDEBAR,
                     foreground=FG_DEFAULT,
                     fieldbackground=BG_SIDEBAR,
-                    rowheight=30,
+                    rowheight=34,
                     borderwidth=0,
                     font=("Segoe UI", 10))
     style.map("CharList.Treeview",

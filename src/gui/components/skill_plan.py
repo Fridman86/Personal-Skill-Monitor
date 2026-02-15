@@ -13,7 +13,8 @@ import json
 from pathlib import Path
 from src.data import skills_db
 from src.utils.paths import PathManager
-from src.ui.tooltip import Tooltip
+from src.ui.tooltip import Tooltip, TreeviewTooltip
+from src.data.skill_descriptions import get_skill_description
 from src.ui.theme_eve import BG_MAIN, BG_PANEL, BG_SIDEBAR, BORDER, BORDER_LIGHT, \
     FG_DEFAULT, FG_BRIGHT, FG_TEAL, FG_DIM
 
@@ -156,10 +157,17 @@ class SkillPlanManager(tk.Toplevel):
         self.catalog_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         cat_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        Tooltip(self.catalog_tree,
-                "All available EVE Online skills.\n"
-                "Select a skill and click 'Add to Plan'\n"
-                "to add it to the current plan.")
+        # Skill description tooltip on row hover
+        def _cat_tip(values):
+            if not values:
+                return None
+            skill_name = str(values[0])
+            desc = get_skill_description(skill_name)
+            if desc:
+                return (skill_name, desc)
+            return None
+
+        TreeviewTooltip(self.catalog_tree, _cat_tip)
 
         # Level + Add buttons
         add_bar = tk.Frame(col2, bg=BG_MAIN)

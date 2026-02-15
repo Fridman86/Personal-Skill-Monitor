@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 from src.data import skills_db
+from src.data.skill_descriptions import get_skill_description
+from src.ui.tooltip import Tooltip, TreeviewTooltip
 
 class SkillView(ttk.Frame):
     def __init__(self, parent):
@@ -17,7 +19,9 @@ class SkillView(ttk.Frame):
         ttk.Label(filter_frame, text="Search:").grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *args: self.filter_skills())
-        ttk.Entry(filter_frame, textvariable=self.search_var, width=25).grid(row=0, column=1, sticky=tk.W, padx=5)
+        search_entry = ttk.Entry(filter_frame, textvariable=self.search_var, width=25)
+        search_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
+        Tooltip(search_entry, "Type to filter skills by name.\nMatches any part of the skill name.")
 
         # Dropdowns
         ttk.Label(filter_frame, text="Group:").grid(row=0, column=2, padx=(15, 5), sticky=tk.W)
@@ -25,6 +29,7 @@ class SkillView(ttk.Frame):
         self.group_cb = ttk.Combobox(filter_frame, textvariable=self.group_var, state="readonly", width=22)
         self.group_cb.grid(row=0, column=3, padx=5, sticky=tk.W)
         self.group_cb.bind("<<ComboboxSelected>>", lambda e: self.filter_skills())
+        Tooltip(self.group_cb, "Filter by skill group\n(e.g. Gunnery, Missiles, Drones).")
 
         ttk.Label(filter_frame, text="Category:").grid(row=0, column=4, padx=(15, 5), sticky=tk.W)
         self.cat_var = tk.StringVar(value="All")
@@ -32,18 +37,23 @@ class SkillView(ttk.Frame):
                                    values=["All", "Combat", "Industry", "Resource", "Support", "Other"], width=12)
         self.cat_cb.grid(row=0, column=5, padx=5, sticky=tk.W)
         self.cat_cb.bind("<<ComboboxSelected>>", lambda e: self.filter_skills())
+        Tooltip(self.cat_cb, "Filter by skill category:\nCombat, Industry, Resource, Support.")
 
         # Checkboxes
         check_frame = ttk.Frame(filter_frame)
         check_frame.grid(row=0, column=6, sticky=tk.W, padx=(20, 0))
 
         self.trained_only_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(check_frame, text="Only trained", variable=self.trained_only_var, 
-                        command=self.filter_skills).pack(side=tk.LEFT, padx=(0, 15))
+        cb_trained = ttk.Checkbutton(check_frame, text="Only trained", variable=self.trained_only_var, 
+                        command=self.filter_skills)
+        cb_trained.pack(side=tk.LEFT, padx=(0, 15))
+        Tooltip(cb_trained, "Show only skills with level ≥ 1.\nHides injected but untrained skills.")
 
         self.show_level_0_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(check_frame, text="Level 0", variable=self.show_level_0_var, 
-                        command=self.filter_skills).pack(side=tk.LEFT, padx=(0, 15))
+        cb_lv0 = ttk.Checkbutton(check_frame, text="Level 0", variable=self.show_level_0_var, 
+                        command=self.filter_skills)
+        cb_lv0.pack(side=tk.LEFT, padx=(0, 15))
+        Tooltip(cb_lv0, "Show/hide skills at level 0\n(injected but not yet trained).")
 
         filter_frame.columnconfigure(6, weight=1)
 
@@ -71,6 +81,18 @@ class SkillView(ttk.Frame):
 
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Skill description tooltip on row hover
+        def _skill_tip(values):
+            if not values or len(values) < 2:
+                return None
+            skill_name = str(values[1])
+            desc = get_skill_description(skill_name)
+            if desc:
+                return (skill_name, desc)
+            return None
+
+        TreeviewTooltip(self.tree, _skill_tip)
 
     def set_skills(self, skills_data):
         self.skills = []
