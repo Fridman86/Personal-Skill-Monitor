@@ -21,7 +21,8 @@ The app is aimed at capsuleers who want a quick overview of their training witho
   - Create and manage custom training plans.
   - **Auto-dependency resolution:** Adding a high-level skill automatically adds all required prerequisites in the correct order.
   - Double-click a skill in the catalog to quickly add it to your plan.
-  - Export plans to clipboard or file.
+  - Import/Export plans to Clipboard or Text file.
+  - Reorder skills within the plan.
 
 - **Smart Tooltips (New!)**
   - Hover over any skill to see its full description.
@@ -42,6 +43,7 @@ The app is aimed at capsuleers who want a quick overview of their training witho
 - **Skill Queue View**
   - Display of the active skill queue:
     - Position, skill, category, target level, finish date (UTC), time left.
+  - **Character Attributes:** Displays current Intelligence, Memory, Perception, Willpower, and Charisma.
   - Human‑readable remaining time format (e.g. `3d 4h 12m`).
 
 - **Data export**
@@ -175,20 +177,23 @@ You can add more characters at any time via **Add Character**.
 
 ```text
 personal-skill-monitor/
-  main.py                 # Application entry point (GUI)
-  esi_client.py           # SSO / ESI logic (tokens, refresh, API calls)
-  data/
-    skills_db.py          # Full skills dictionary (id → name/group/category)
-  gui/
-    app.py                # Main window and layout
-    skill_view.py         # Skills table + filters
-    queue_view.py         # Skill queue table
-  utils/
-    export.py             # Export to CSV/JSON/XML/Text/Python/Clipboard
+  main.py                 # Application entry point
+  src/
+    core/
+      controller.py       # Main business logic
+      esi.py              # ESI API client
+      auth.py             # OAuth2 / SSO manager
+    data/
+      skills_db.py        # Skills database
+    gui/
+      app.py              # Main GUI window
+      components/         # UI components (SkillView, QueueView, SkillPlan)
+    utils/
+      config.py           # Configuration & Token management
+      export.py           # Export logic
   config.example.env      # Configuration template
   requirements.txt
   tokens.json             # Local tokens store (ignored by Git)
-  exports/                # Exported files target directory
 ```
 
 (Exact module names can differ slightly — check the repository tree.)
