@@ -1,7 +1,7 @@
 """
 Tooltip (підказка) widgets for tkinter.
 - Tooltip: simple hover tooltip for any widget
-- TreeviewTooltip: row-aware tooltip for ttk.Treeview (polling-based)
+- TreeviewTooltip: row-aware tooltip for ttk.Treeview (always-on polling)
 """
 import tkinter as tk
 from tkinter import ttk
@@ -72,15 +72,17 @@ class Tooltip:
 
 class TreeviewTooltip:
     """
-    Row-aware tooltip for ttk.Treeview using a polling approach.
+    Row-aware tooltip for ttk.Treeview.
 
-    Every POLL_MS milliseconds, checks if the mouse is over a treeview row.
-    If hovering on the same row for >= DELAY_MS, shows a tooltip.
+    Uses always-on polling (every POLL_MS) to check mouse position.
+    Does NOT rely on Enter/Leave/Motion events which can be unreliable
+    on some Linux/tk configurations or inside PanedWindow hierarchies.
+
     text_func(item_values) -> str | (title, description) | None
     """
 
-    DELAY_MS = 500       # ms on same row before showing
-    POLL_MS = 100        # polling interval
+    DELAY_MS = 500       # hover time before showing tooltip
+    POLL_MS = 150        # polling interval
     WRAP_LENGTH = 340
 
     def __init__(self, treeview, text_func,
@@ -97,55 +99,30 @@ class TreeviewTooltip:
         self.title_font = title_font
         self._tw = None
         self._current_row = None
-        self._dwell_ms = 0         # how long cursor has been on current row
-        self._polling = False
-        self._poll_id = None
+        self._dwell_ms = 0
+        self._alive = True
 
-        # Start/stop polling when mouse enters/leaves the treeview
-        treeview.bind("<Enter>", self._start_polling, add="+")
-        treeview.bind("<Leave>", self._stop_polling, add="+")
-        treeview.bind("<ButtonPress>", self._on_click, add="+")
-        treeview.bind("<MouseWheel>", self._on_click, add="+")
+        # Cleanup on widget destroy
         treeview.bind("<Destroy>", self._on_destroy, add="+")
 
-    def _start_polling(self, event=None):
-        if not self._polling:
-            self._polling = True
-            self._poll()
-
-    def _stop_polling(self, event=None):
-        self._polling = False
-        if self._poll_id is not None:
-            try:
-                self.tree.after_cancel(self._poll_id)
-            except Exception:
-                pass
-            self._poll_id = None
-        self._current_row = None
-        self._dwell_ms = 0
-        self._hide()
-
-    def _on_click(self, event=None):
-        self._current_row = None
-        self._dwell_ms = 0
-        self._hide()
+        # Start polling immediately (delayed by 1s so UI can finish setting up)
+        treeview.after(1000, self._poll)
 
     def _on_destroy(self, event=None):
-        self._polling = False
-        if self._poll_id is not None:
-            try:
-                self.tree.after_cancel(self._poll_id)
-            except Exception:
-                pass
-            self._poll_id = None
+        self._alive = False
         self._hide()
 
     def _poll(self):
-        """Periodically check mouse position and manage tooltip."""
-        if not self._polling:
+        """Periodically check if mouse is over a treeview row."""
+        if not self._alive:
             return
 
         try:
+            # Is the tree widget visible and mapped?
+            if not self.tree.winfo_ismapped():
+                self.tree.after(self.POLL_MS, self._poll)
+                return
+
             # Get mouse position relative to the treeview
             px = self.tree.winfo_pointerx()
             py = self.tree.winfo_pointery()
@@ -157,42 +134,49 @@ class TreeviewTooltip:
             rel_x = px - rx
             rel_y = py - ry
 
-            # Check if mouse is actually over the treeview
+            # Check if mouse is over the treeview area
             if 0 <= rel_x <= tw and 0 <= rel_y <= th:
                 row_id = self.tree.identify_row(rel_y)
 
-                if row_id and row_id == self._current_row:
-                    # Still on the same row — accumulate dwell time
-                    self._dwell_ms += self.POLL_MS
-                    if self._dwell_ms >= self.DELAY_MS and not self._tw:
-                        self._show_tooltip(row_id, px, py)
-                elif row_id:
-                    # Moved to a different row
-                    self._hide()
-                    self._current_row = row_id
-                    self._dwell_ms = 0
+                if row_id:
+                    if row_id == self._current_row:
+                        # Still on the same row
+                        self._dwell_ms += self.POLL_MS
+                        if self._dwell_ms >= self.DELAY_MS and self._tw is None:
+                            self._show_tooltip(row_id, px, py)
+                    else:
+                        # Moved to a different row
+                        self._hide()
+                        self._current_row = row_id
+                        self._dwell_ms = 0
                 else:
-                    # Not over a valid row (maybe on a heading)
+                    # On heading or empty area
+                    if self._current_row is not None:
+                        self._hide()
+                        self._current_row = None
+                        self._dwell_ms = 0
+            else:
+                # Mouse not over the treeview
+                if self._current_row is not None or self._tw is not None:
                     self._hide()
                     self._current_row = None
                     self._dwell_ms = 0
-            else:
-                # Mouse left the tree area
-                self._hide()
-                self._current_row = None
-                self._dwell_ms = 0
+
         except (tk.TclError, RuntimeError):
-            # Widget destroyed or unavailable
-            self._polling = False
+            # Widget destroyed
+            self._alive = False
             return
 
         # Schedule next poll
-        if self._polling:
-            self._poll_id = self.tree.after(self.POLL_MS, self._poll)
+        if self._alive:
+            try:
+                self.tree.after(self.POLL_MS, self._poll)
+            except (tk.TclError, RuntimeError):
+                self._alive = False
 
     def _show_tooltip(self, row_id, mouse_x, mouse_y):
-        """Create and display the tooltip near the mouse."""
-        if self._tw:
+        """Create and display the tooltip."""
+        if self._tw is not None:
             return
 
         try:
@@ -226,53 +210,55 @@ class TreeviewTooltip:
             return
 
         # Create tooltip window
-        self._tw = tw = tk.Toplevel(self.tree)
-        tw.wm_overrideredirect(True)
         try:
-            tw.attributes("-topmost", True)
-        except Exception:
-            pass
+            self._tw = tip = tk.Toplevel(self.tree)
+            tip.wm_overrideredirect(True)
+            try:
+                tip.attributes("-topmost", True)
+            except Exception:
+                pass
 
-        outer = tk.Frame(tw, bg="#2a3044", padx=1, pady=1)
-        outer.pack()
-        inner = tk.Frame(outer, bg=self.bg)
-        inner.pack()
+            outer = tk.Frame(tip, bg="#2a3044", padx=1, pady=1)
+            outer.pack()
+            inner = tk.Frame(outer, bg=self.bg)
+            inner.pack()
 
-        if title:
-            tk.Label(inner, text=title,
+            if title:
+                tk.Label(inner, text=title,
+                         justify=tk.LEFT, background=self.bg,
+                         foreground=self.title_fg, relief="flat",
+                         borderwidth=0, font=self.title_font,
+                         wraplength=self.WRAP_LENGTH,
+                         padx=10, pady=(6, 0), anchor="w").pack(fill=tk.X)
+
+            tk.Label(inner, text=description,
                      justify=tk.LEFT, background=self.bg,
-                     foreground=self.title_fg, relief="flat",
-                     borderwidth=0, font=self.title_font,
+                     foreground=self.fg, relief="flat",
+                     borderwidth=0, font=self.font,
                      wraplength=self.WRAP_LENGTH,
-                     padx=10, pady=(6, 0), anchor="w").pack(fill=tk.X)
+                     padx=10, pady=(3 if title else 6, 6),
+                     anchor="w").pack(fill=tk.X)
 
-        tk.Label(inner, text=description,
-                 justify=tk.LEFT, background=self.bg,
-                 foreground=self.fg, relief="flat",
-                 borderwidth=0, font=self.font,
-                 wraplength=self.WRAP_LENGTH,
-                 padx=10, pady=(3 if title else 6, 6),
-                 anchor="w").pack(fill=tk.X)
+            # Position tooltip near cursor
+            tip.update_idletasks()
+            tip_w = tip.winfo_reqwidth()
+            tip_h = tip.winfo_reqheight()
+            screen_w = self.tree.winfo_screenwidth()
+            screen_h = self.tree.winfo_screenheight()
 
-        # Position tooltip
-        tw.update_idletasks()
-        tip_w = tw.winfo_reqwidth()
-        tip_h = tw.winfo_reqheight()
-        screen_w = self.tree.winfo_screenwidth()
-        screen_h = self.tree.winfo_screenheight()
+            x = mouse_x + 16
+            y = mouse_y + 16
+            if x + tip_w > screen_w:
+                x = mouse_x - tip_w - 8
+            if y + tip_h > screen_h:
+                y = mouse_y - tip_h - 8
 
-        x = mouse_x + 16
-        y = mouse_y + 16
-
-        if x + tip_w > screen_w:
-            x = mouse_x - tip_w - 8
-        if y + tip_h > screen_h:
-            y = mouse_y - tip_h - 8
-
-        tw.wm_geometry(f"+{x}+{y}")
+            tip.wm_geometry(f"+{x}+{y}")
+        except (tk.TclError, RuntimeError):
+            self._hide()
 
     def _hide(self):
-        if self._tw:
+        if self._tw is not None:
             try:
                 self._tw.destroy()
             except Exception:
