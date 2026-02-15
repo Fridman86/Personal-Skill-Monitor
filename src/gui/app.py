@@ -11,7 +11,8 @@ from src.core.esi import ESIClient
 from src.utils.export import ExportManager
 from src.data import skills_db
 from src.ui.theme_eve import setup_eve_dark_theme, BG_SIDEBAR, BG_MAIN, BG_PANEL, \
-    BORDER, FG_DEFAULT, FG_BRIGHT, FG_TEAL, FG_DIM, BG_SELECT
+    BORDER, FG_DEFAULT, FG_BRIGHT, FG_TEAL, FG_DIM, BG_SELECT, BORDER_LIGHT
+from src.ui.tooltip import Tooltip
 from src.utils.paths import PathManager
 
 
@@ -24,7 +25,7 @@ class EVEApp(tk.Tk):
         self.export_manager = ExportManager()
 
         self.title("Personal Skill Monitor")
-        self.geometry("1150x780")
+        self.geometry("1200x780")
         self.minsize(950, 650)
 
         # Window icon
@@ -98,88 +99,100 @@ class EVEApp(tk.Tk):
 
     # ── UI Layout ────────────────────────────────────────
     def _setup_ui(self):
-        # ╔═══════════════════════════════════════════════╗
-        # ║  SIDEBAR  │          CONTENT AREA             ║
-        # ║  (fixed)  │  Title + Export controls          ║
-        # ║           │  Stats bar                        ║
-        # ║  Chars    │  ┌─────────────────────────────┐  ║
-        # ║  list     │  │  Skill Table                │  ║
-        # ║           │  ├─────────────────────────────┤  ║
-        # ║  ─────    │  │  Skill Queue                │  ║
-        # ║  Buttons  │  └─────────────────────────────┘  ║
-        # ╚═══════════════════════════════════════════════╝
+        # ╔══════════════════╤═══════════════════════════════╗
+        # ║     SIDEBAR      │       CONTENT AREA            ║
+        # ║  (resizable)     │  Title bar + Export           ║
+        # ║                  │  Stats                        ║
+        # ║  PSM branding    │  ┌────────────────────────┐   ║
+        # ║  ────────        │  │ Skill Table            │   ║
+        # ║  CHARACTERS      │  ├────────────────────────┤   ║
+        # ║   · Kobi         │  │ Skill Queue            │   ║
+        # ║   · Orli         │  └────────────────────────┘   ║
+        # ║  ────────        │                               ║
+        # ║  Nav buttons     │                               ║
+        # ╚══════════════════╧═══════════════════════════════╝
 
-        # ── Left Sidebar (RIFT-style, fixed width) ──
-        self.sidebar = tk.Frame(self, bg=BG_SIDEBAR, width=200)
-        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
-        self.sidebar.pack_propagate(False)
+        # ── Main horizontal PanedWindow for resizable sidebar ──
+        self.main_pw = tk.PanedWindow(self, orient=tk.HORIZONTAL,
+                                      sashwidth=4,
+                                      sashrelief=tk.FLAT,
+                                      bg=BORDER_LIGHT,
+                                      borderwidth=0,
+                                      opaqueresize=True)
+        self.main_pw.pack(fill=tk.BOTH, expand=True)
 
-        # Thin right border on sidebar
-        sidebar_border = tk.Frame(self, bg=BORDER, width=1)
-        sidebar_border.pack(side=tk.LEFT, fill=tk.Y)
+        # ── LEFT: Sidebar ──
+        self.sidebar = tk.Frame(self.main_pw, bg=BG_SIDEBAR)
 
-        # -- App branding --
-        brand_frame = tk.Frame(self.sidebar, bg=BG_SIDEBAR)
-        brand_frame.pack(fill=tk.X, padx=0, pady=(0, 4))
+        # Branding
+        brand = tk.Frame(self.sidebar, bg=BG_SIDEBAR)
+        brand.pack(fill=tk.X, pady=(0, 2))
 
-        tk.Label(brand_frame, text="PSM", font=("Segoe UI", 16, "bold"),
+        tk.Label(brand, text="PSM", font=("Segoe UI", 16, "bold"),
                  fg=FG_TEAL, bg=BG_SIDEBAR, anchor="w").pack(padx=14, pady=(14, 0))
-        tk.Label(brand_frame, text="Personal Skill Monitor",
+        tk.Label(brand, text="Personal Skill Monitor",
                  font=("Segoe UI", 8), fg=FG_DIM, bg=BG_SIDEBAR,
-                 anchor="w").pack(padx=14, pady=(0, 8))
+                 anchor="w").pack(padx=14, pady=(0, 10))
 
-        # Divider
-        tk.Frame(self.sidebar, bg=BORDER, height=1).pack(fill=tk.X, padx=12)
+        tk.Frame(self.sidebar, bg=BORDER, height=1).pack(fill=tk.X, padx=10)
 
-        # -- Character list header --
+        # Section header
         tk.Label(self.sidebar, text="CHARACTERS",
                  font=("Segoe UI", 8, "bold"), fg=FG_DIM,
-                 bg=BG_SIDEBAR, anchor="w").pack(padx=14, pady=(12, 4))
+                 bg=BG_SIDEBAR, anchor="w").pack(padx=14, pady=(10, 4))
 
-        # -- Character list --
+        # Character list
         self.char_tree = ttk.Treeview(self.sidebar, show="tree",
                                       selectmode="browse",
                                       style="CharList.Treeview")
         self.char_tree.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
         self.char_tree.bind("<<TreeviewSelect>>", self._on_char_select)
+        Tooltip(self.char_tree,
+                "Your EVE Online characters.\n"
+                "Click a name to select and load skills.")
 
         # Divider
-        tk.Frame(self.sidebar, bg=BORDER, height=1).pack(fill=tk.X, padx=12, pady=4)
+        tk.Frame(self.sidebar, bg=BORDER, height=1).pack(fill=tk.X, padx=10, pady=4)
 
-        # -- Navigation buttons (RIFT-style) --
-        nav_frame = tk.Frame(self.sidebar, bg=BG_SIDEBAR)
-        nav_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(0, 10))
+        # Navigation buttons (bottom)
+        nav = tk.Frame(self.sidebar, bg=BG_SIDEBAR)
+        nav.pack(fill=tk.X, side=tk.BOTTOM, pady=(0, 10))
 
-        nav_buttons = [
-            ("＋  Add Character", self._add_character),
-            ("－  Remove",        self._remove_character),
-            ("↻  Refresh Data",   self._refresh_data),
-            ("📋  Skill Plans",    self._open_skill_plan),
-            ("ℹ  About",          self._on_about_click),
-            ("⏻  Quit",           self._on_quit),
+        nav_items = [
+            ("＋  Add Character",  self._add_character,
+             "Authorize a new EVE Online character\nvia SSO login in your browser."),
+            ("－  Remove",         self._remove_character,
+             "Remove the selected character and\ndelete its local tokens."),
+            ("↻  Refresh Data",    self._refresh_data,
+             "Fetch latest skills and queue\nfrom EVE ESI API."),
+            ("📋  Skill Plans",     self._open_skill_plan,
+             "Open the Skill Plan Manager to\ncreate custom training plans."),
+            ("ℹ  About",           self._on_about_click,
+             "Application info and version."),
+            ("⏻  Quit",            self._on_quit,
+             "Exit the application."),
         ]
-        for text, cmd in nav_buttons:
-            btn = tk.Button(nav_frame, text=text,
+        for text, cmd, tip in nav_items:
+            btn = tk.Button(nav, text=text,
                             font=("Segoe UI", 10),
                             fg=FG_DEFAULT, bg=BG_SIDEBAR,
                             activeforeground=FG_TEAL, activebackground=BG_SIDEBAR,
                             bd=0, relief="flat", anchor="w",
-                            padx=14, pady=6,
-                            cursor="hand2",
+                            padx=14, pady=6, cursor="hand2",
                             command=cmd)
             btn.pack(fill=tk.X)
             btn.bind("<Enter>", lambda e, b=btn: b.config(fg=FG_TEAL))
             btn.bind("<Leave>", lambda e, b=btn: b.config(fg=FG_DEFAULT))
+            Tooltip(btn, tip)
 
-        # ── Content Area ──
-        content = ttk.Frame(self)
-        content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # ── RIGHT: Content Area ──
+        content = tk.Frame(self.main_pw, bg=BG_MAIN)
 
-        # -- Top strip (title + export) --
-        self.top_strip = tk.Frame(content, bg=BG_PANEL)
-        self.top_strip.pack(fill=tk.X)
+        # Top strip (title + export)
+        top_strip = tk.Frame(content, bg=BG_PANEL)
+        top_strip.pack(fill=tk.X)
 
-        top_inner = tk.Frame(self.top_strip, bg=BG_PANEL)
+        top_inner = tk.Frame(top_strip, bg=BG_PANEL)
         top_inner.pack(fill=tk.X, padx=16, pady=10)
 
         self.char_title_var = tk.StringVar(value="Select a character")
@@ -199,16 +212,28 @@ class EVEApp(tk.Tk):
                                 values=["All Skills", "Filtered Skills", "Skill Queue"],
                                 width=14)
         scope_cb.pack(side=tk.LEFT, padx=(0, 10))
+        Tooltip(scope_cb, "Choose which data to export:\n"
+                "• All Skills — every skill on the character\n"
+                "• Filtered Skills — only currently visible\n"
+                "• Skill Queue — current training queue")
 
-        ttk.Button(export_f, text="📋 Copy", style="Accent.TButton",
-                   command=lambda: self._on_export("clipboard")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(export_f, text="💾 CSV", style="Accent.TButton",
-                   command=lambda: self._on_export("csv")).pack(side=tk.LEFT, padx=2)
+        btn_copy = ttk.Button(export_f, text="📋 Copy", style="Accent.TButton",
+                              command=lambda: self._on_export("clipboard"))
+        btn_copy.pack(side=tk.LEFT, padx=2)
+        Tooltip(btn_copy, "Copy skills to clipboard in EVE format:\n"
+                "\"Skill Name Level\"\n\n"
+                "Paste directly into EVE Online skill queue.")
 
-        # Thin top-strip bottom border
+        btn_csv = ttk.Button(export_f, text="💾 CSV", style="Accent.TButton",
+                             command=lambda: self._on_export("csv"))
+        btn_csv.pack(side=tk.LEFT, padx=2)
+        Tooltip(btn_csv, "Save skills to a CSV file.\n"
+                "Format: Skill Name, Level")
+
+        # Top-strip bottom border
         tk.Frame(content, bg=BORDER, height=1).pack(fill=tk.X)
 
-        # -- Stats bar --
+        # Stats bar
         stats_f = tk.Frame(content, bg=BG_MAIN)
         stats_f.pack(fill=tk.X, padx=16, pady=(8, 4))
 
@@ -216,14 +241,20 @@ class EVEApp(tk.Tk):
         self.unallocated_sp_var = tk.StringVar(value="Unallocated SP: 0")
         self.cache_status_var = tk.StringVar(value="")
 
-        tk.Label(stats_f, textvariable=self.total_sp_var,
-                 font=("Segoe UI", 9), fg=FG_TEAL, bg=BG_MAIN).pack(side=tk.LEFT, padx=(0, 20))
-        tk.Label(stats_f, textvariable=self.unallocated_sp_var,
-                 font=("Segoe UI", 9), fg=FG_TEAL, bg=BG_MAIN).pack(side=tk.LEFT, padx=(0, 20))
+        lbl_sp = tk.Label(stats_f, textvariable=self.total_sp_var,
+                          font=("Segoe UI", 9), fg=FG_TEAL, bg=BG_MAIN)
+        lbl_sp.pack(side=tk.LEFT, padx=(0, 20))
+        Tooltip(lbl_sp, "Total trained Skill Points\nacross all skills.")
+
+        lbl_un = tk.Label(stats_f, textvariable=self.unallocated_sp_var,
+                          font=("Segoe UI", 9), fg=FG_TEAL, bg=BG_MAIN)
+        lbl_un.pack(side=tk.LEFT, padx=(0, 20))
+        Tooltip(lbl_un, "Skill Points available to allocate\n(free SP from injectors, etc.).")
+
         tk.Label(stats_f, textvariable=self.cache_status_var,
                  font=("Segoe UI", 8, "italic"), fg=FG_DIM, bg=BG_MAIN).pack(side=tk.RIGHT)
 
-        # -- Skills / Queue PanedWindow --
+        # Skill / Queue vertical PanedWindow
         self.paned = ttk.PanedWindow(content, orient=tk.VERTICAL)
         self.paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(4, 8))
 
@@ -232,6 +263,23 @@ class EVEApp(tk.Tk):
 
         self.paned.add(self.skill_view, weight=3)
         self.paned.add(self.queue_view, weight=1)
+
+        # ── Add panes to main PanedWindow ──
+        saved_w = self._load_setting("sidebar_width", 220)
+        self.main_pw.add(self.sidebar, minsize=140, width=saved_w)
+        self.main_pw.add(content, minsize=600)
+
+        # Save sidebar width on sash drag
+        self.main_pw.bind("<ButtonRelease-1>", self._on_sash_release)
+
+    def _on_sash_release(self, event=None):
+        """Persist sidebar width when user drags the sash."""
+        try:
+            coords = self.main_pw.sash_coord(0)
+            if coords:
+                self._save_setting("sidebar_width", coords[0])
+        except Exception:
+            pass
 
     # ── Character management ─────────────────────────────
     def _load_characters(self):
@@ -243,7 +291,6 @@ class EVEApp(tk.Tk):
             self.char_tree.insert("", tk.END, iid=str(idx),
                                   text=f"  {char['name']}")
 
-        # Log unknowns
         if self.current_skills:
             unknowns = [f"{s.get('skill_id')}" for s in self.current_skills
                         if skills_db.is_unknown_skill(s.get("skill_id"))]
@@ -264,11 +311,11 @@ class EVEApp(tk.Tk):
             try:
                 token_data = self.auth_manager.exchange_code(code)
                 verify = self.auth_manager.verify_token(token_data["access_token"])
-                char_id = verify["CharacterID"]
-                char_name = verify["CharacterName"]
-                self.app_config.update_character_token(char_id, char_name, token_data)
+                cid = verify["CharacterID"]
+                cname = verify["CharacterName"]
+                self.app_config.update_character_token(cid, cname, token_data)
                 self.after(0, self._load_characters)
-                messagebox.showinfo("Success", f"Character {char_name} added!")
+                messagebox.showinfo("Success", f"Character {cname} added!")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to add character: {e}")
         self.auth_manager.start_auth_flow(on_auth_success)
@@ -346,7 +393,6 @@ class EVEApp(tk.Tk):
         }
         data_type = scope_map.get(scope, "data")
 
-        # Gather data
         if data_type == "skills_all":
             data = self.skill_view.skills
         elif data_type == "skills_filtered":
