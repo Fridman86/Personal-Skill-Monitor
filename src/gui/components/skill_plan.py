@@ -2,19 +2,20 @@
 Skill Plan Manager — allows creating custom training plans
 that can be exported in EVE Online game-importable format.
 
-EVE Online import format:
-  Skill Name 1
-  Skill Name 2
-  ...
+Features:
+- Double-click: adds skill at next level (1→2→3→4→5), hides at 5
+- Auto-prerequisites: adds required skills before the selected one
+- Resizable columns via PanedWindow
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import json
 from pathlib import Path
 from src.data import skills_db
+from src.data.skill_descriptions import get_skill_description
+from src.data.skill_prerequisites import get_prerequisites, resolve_prerequisites
 from src.utils.paths import PathManager
 from src.ui.tooltip import Tooltip, TreeviewTooltip
-from src.data.skill_descriptions import get_skill_description
 from src.ui.theme_eve import BG_MAIN, BG_PANEL, BG_SIDEBAR, BORDER, BORDER_LIGHT, \
     FG_DEFAULT, FG_BRIGHT, FG_TEAL, FG_DIM
 
@@ -53,8 +54,15 @@ class SkillPlanManager(tk.Toplevel):
                 "skill_id": sid,
                 "name": name,
                 "group": group,
-                "category": category
             }
+
+    def _get_max_planned_level(self, skill_name):
+        """Return the highest level of this skill already in the plan (0 if none)."""
+        max_lvl = 0
+        for s in self.plan_skills:
+            if s["name"] == skill_name:
+                max_lvl = max(max_lvl, s["level"])
+        return max_lvl
 
     def _setup_ui(self):
         # ── Top bar ──
@@ -63,9 +71,13 @@ class SkillPlanManager(tk.Toplevel):
         tk.Label(top, text="⚙  Skill Plan Manager",
                  font=("Segoe UI", 14, "bold"),
                  fg=FG_BRIGHT, bg=BG_PANEL).pack(side=tk.LEFT, padx=15, pady=12)
+        # Hint
+        tk.Label(top, text="Double-click a skill to add it",
+                 font=("Segoe UI", 9, "italic"),
+                 fg=FG_DIM, bg=BG_PANEL).pack(side=tk.RIGHT, padx=15, pady=12)
         tk.Frame(self, bg=BORDER, height=1).pack(fill=tk.X)
 
-        # ── 3-column PanedWindow (all resizable) ──
+        # ── 3-column PanedWindow ──
         self.col_pw = tk.PanedWindow(self, orient=tk.HORIZONTAL,
                                      sashwidth=4,
                                      sashrelief=tk.FLAT,
@@ -125,7 +137,7 @@ class SkillPlanManager(tk.Toplevel):
         self.catalog_search_var.trace_add("write", lambda *a: self._filter_catalog())
         search_entry = ttk.Entry(search_bar, textvariable=self.catalog_search_var, width=18)
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        Tooltip(search_entry, "Type to filter skills by name.\nMatches any part of the skill name.")
+        Tooltip(search_entry, "Type to filter skills by name.")
 
         tk.Label(search_bar, text="  Group:", font=("Segoe UI", 9),
                  fg=FG_DIM, bg=BG_MAIN).pack(side=tk.LEFT, padx=(6, 4))
@@ -135,21 +147,19 @@ class SkillPlanManager(tk.Toplevel):
                                 state="readonly", values=["All"] + groups, width=16)
         group_cb.pack(side=tk.LEFT, padx=2)
         group_cb.bind("<<ComboboxSelected>>", lambda e: self._filter_catalog())
-        Tooltip(group_cb, "Filter the catalog by skill group\n(e.g. Spaceship Command, Drones, etc.).")
+        Tooltip(group_cb, "Filter by skill group.")
 
-        # Catalog treeview
+        # Catalog treeview (no Category column)
         cat_frame = tk.Frame(col2, bg=BG_MAIN)
         cat_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
 
         self.catalog_tree = ttk.Treeview(cat_frame,
-                                          columns=("name", "group", "category"),
+                                          columns=("name", "group"),
                                           show="headings", height=15)
         self.catalog_tree.heading("name", text="Skill Name")
         self.catalog_tree.heading("group", text="Group")
-        self.catalog_tree.heading("category", text="Category")
-        self.catalog_tree.column("name", width=180, minwidth=100)
-        self.catalog_tree.column("group", width=130, minwidth=80)
-        self.catalog_tree.column("category", width=80, minwidth=60)
+        self.catalog_tree.column("name", width=220, minwidth=120)
+        self.catalog_tree.column("group", width=150, minwidth=80)
 
         cat_scroll = ttk.Scrollbar(cat_frame, orient=tk.VERTICAL,
                                    command=self.catalog_tree.yview)
@@ -157,14 +167,31 @@ class SkillPlanManager(tk.Toplevel):
         self.catalog_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         cat_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Skill description tooltip on row hover
+        # Double-click to add skill
+        self.catalog_tree.bind("<Double-1>", self._on_catalog_double_click)
+
+        # Skill tooltip on hover
         def _cat_tip(values):
             if not values:
                 return None
             skill_name = str(values[0])
             desc = get_skill_description(skill_name)
+            # Show current plan status
+            max_lvl = self._get_max_planned_level(skill_name)
+            parts = []
             if desc:
-                return (skill_name, desc)
+                parts.append(desc)
+            if max_lvl > 0:
+                parts.append(f"\n📋 In plan up to level {max_lvl}")
+            if max_lvl >= 5:
+                parts.append("✅ Fully planned (all 5 levels)")
+            # Show prerequisites
+            prereqs = get_prerequisites(skill_name)
+            if prereqs:
+                prereq_text = ", ".join(f"{n} {l}" for n, l in prereqs)
+                parts.append(f"\n🔗 Requires: {prereq_text}")
+            if parts:
+                return (skill_name, "\n".join(parts) if parts else "")
             return None
 
         TreeviewTooltip(self.catalog_tree, _cat_tip)
@@ -185,17 +212,18 @@ class SkillPlanManager(tk.Toplevel):
         b_add = ttk.Button(add_bar, text="→ Add to Plan",
                            style="Accent.TButton", command=self._add_to_plan)
         b_add.pack(side=tk.LEFT, padx=4)
-        Tooltip(b_add, "Add the selected skill at the\nchosen level to the current plan.")
+        Tooltip(b_add, "Add selected skill + prerequisites\nat the chosen level.")
 
         b_add5 = ttk.Button(add_bar, text="→ Add 1→5",
                             style="Accent.TButton", command=self._add_range_to_plan)
         b_add5.pack(side=tk.LEFT, padx=4)
-        Tooltip(b_add5, "Add the selected skill at levels\n1 through 5 to the plan.")
+        Tooltip(b_add5, "Add selected skill at levels 1-5\nwith all prerequisites.")
 
         # === Column 3: Current Plan ===
         col3 = tk.Frame(self.col_pw, bg=BG_MAIN)
 
-        tk.Label(col3, text="CURRENT PLAN",
+        self.plan_header_var = tk.StringVar(value="CURRENT PLAN")
+        tk.Label(col3, textvariable=self.plan_header_var,
                  font=("Segoe UI", 8, "bold"), fg=FG_DIM,
                  bg=BG_MAIN, anchor="w").pack(padx=6, pady=(6, 4))
 
@@ -207,7 +235,7 @@ class SkillPlanManager(tk.Toplevel):
                                        show="headings", height=15)
         self.plan_tree.heading("name", text="Skill Name")
         self.plan_tree.heading("level", text="Lvl")
-        self.plan_tree.column("name", width=200, minwidth=120)
+        self.plan_tree.column("name", width=220, minwidth=120)
         self.plan_tree.column("level", width=50, minwidth=35, anchor=tk.CENTER)
 
         plan_scroll = ttk.Scrollbar(plan_frame, orient=tk.VERTICAL,
@@ -216,9 +244,18 @@ class SkillPlanManager(tk.Toplevel):
         self.plan_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         plan_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        Tooltip(self.plan_tree,
-                "Skills in the current training plan.\n"
-                "Use ↑/↓ to reorder, ✕ to remove.")
+        # Plan tooltip
+        def _plan_tip(values):
+            if not values or len(values) < 2:
+                return None
+            skill_name = str(values[0])
+            level = str(values[1])
+            desc = get_skill_description(skill_name)
+            if desc:
+                return (f"{skill_name} {level}", desc)
+            return None
+
+        TreeviewTooltip(self.plan_tree, _plan_tip)
 
         # Reorder / remove controls
         ctrl_bar = tk.Frame(col3, bg=BG_MAIN)
@@ -226,11 +263,11 @@ class SkillPlanManager(tk.Toplevel):
 
         b_up = ttk.Button(ctrl_bar, text="↑", command=self._move_up, width=3)
         b_up.pack(side=tk.LEFT, padx=2)
-        Tooltip(b_up, "Move selected skill up in the plan.")
+        Tooltip(b_up, "Move selected skill up.")
 
         b_dn = ttk.Button(ctrl_bar, text="↓", command=self._move_down, width=3)
         b_dn.pack(side=tk.LEFT, padx=2)
-        Tooltip(b_dn, "Move selected skill down in the plan.")
+        Tooltip(b_dn, "Move selected skill down.")
 
         b_rm = ttk.Button(ctrl_bar, text="✕ Remove", command=self._remove_from_plan, width=9)
         b_rm.pack(side=tk.LEFT, padx=5)
@@ -238,7 +275,7 @@ class SkillPlanManager(tk.Toplevel):
 
         b_cl = ttk.Button(ctrl_bar, text="Clear All", command=self._clear_plan, width=8)
         b_cl.pack(side=tk.LEFT, padx=2)
-        Tooltip(b_cl, "Remove all skills from the current plan.")
+        Tooltip(b_cl, "Remove all skills from the plan.")
 
         # Export bar
         export_bar = tk.Frame(col3, bg=BG_MAIN)
@@ -247,22 +284,17 @@ class SkillPlanManager(tk.Toplevel):
         b_clip = ttk.Button(export_bar, text="📋 Copy to Clipboard",
                             style="Accent.TButton", command=self._export_clipboard)
         b_clip.pack(side=tk.LEFT, padx=2)
-        Tooltip(b_clip, "Copy the plan to clipboard in EVE format:\n"
-                "\"Skill Name Level\"\n\n"
-                "Paste into EVE Online → Character Sheet →\n"
-                "Skill Queue → Import.")
+        Tooltip(b_clip, "Copy plan to clipboard in EVE format:\n\"Skill Name Level\"")
 
         b_txt = ttk.Button(export_bar, text="💾 Save as TXT",
                            style="Accent.TButton", command=self._export_txt)
         b_txt.pack(side=tk.LEFT, padx=2)
-        Tooltip(b_txt, "Save the plan as a .txt file\nin EVE-importable format.")
+        Tooltip(b_txt, "Save plan as a .txt file.")
 
-        b_imp = ttk.Button(export_bar, text="📂 Import from Clipboard",
+        b_imp = ttk.Button(export_bar, text="📂 Import",
                            command=self._import_clipboard)
         b_imp.pack(side=tk.LEFT, padx=2)
-        Tooltip(b_imp, "Import skills from clipboard.\n"
-                "Expects EVE format: \"Skill Name Level\"\n"
-                "(one per line).")
+        Tooltip(b_imp, "Import skills from clipboard.\nFormat: \"Skill Name Level\"")
 
         # ── Add columns to PanedWindow ──
         self.col_pw.add(col1, minsize=150, width=200)
@@ -271,6 +303,49 @@ class SkillPlanManager(tk.Toplevel):
 
         # Populate catalog
         self._filter_catalog()
+
+    # ── Double-click to add skill ────────────────────────
+    def _on_catalog_double_click(self, event):
+        """Double-click adds skill at next level (auto-increment 1→5)."""
+        if not self.current_plan_name:
+            messagebox.showinfo("Info", "Create or select a plan first")
+            return
+
+        item_id = self.catalog_tree.identify_row(event.y)
+        if not item_id:
+            return
+
+        values = self.catalog_tree.item(item_id)["values"]
+        if not values:
+            return
+
+        skill_name = str(values[0])
+        current_max = self._get_max_planned_level(skill_name)
+
+        if current_max >= 5:
+            return  # Already fully planned
+
+        next_level = current_max + 1
+
+        # Resolve prerequisites for this skill at this level
+        needed = resolve_prerequisites(skill_name, next_level, self.plan_skills)
+
+        added_count = 0
+        for req_name, req_level in needed:
+            exists = any(s["name"] == req_name and s["level"] == req_level
+                         for s in self.plan_skills)
+            if not exists:
+                self.plan_skills.append({"name": req_name, "level": req_level})
+                added_count += 1
+
+        self._save_plan()
+        self._refresh_plan_tree()
+        self._filter_catalog()  # Refresh to hide fully-planned skills
+
+        # Scroll to end to show new entry
+        children = self.plan_tree.get_children()
+        if children:
+            self.plan_tree.see(children[-1])
 
     # ── Catalog ──────────────────────────────────────────
     def _filter_catalog(self):
@@ -284,8 +359,13 @@ class SkillPlanManager(tk.Toplevel):
                 continue
             if group != "All" and info["group"] != group:
                 continue
+
+            # Hide skills that are already at level 5 in the plan
+            if self._get_max_planned_level(name) >= 5:
+                continue
+
             self.catalog_tree.insert("", tk.END,
-                                     values=(name, info["group"], info["category"]))
+                                     values=(name, info["group"]))
 
     # ── Plan list ────────────────────────────────────────
     def _load_plan_list(self):
@@ -310,6 +390,8 @@ class SkillPlanManager(tk.Toplevel):
             self.plan_skills = []
         self.current_plan_name = name
         self._refresh_plan_tree()
+        self._filter_catalog()  # Refresh to hide fully-planned skills
+        self.plan_header_var.set(f"CURRENT PLAN — {name}")
 
     def _save_plan(self):
         if not self.current_plan_name:
@@ -322,6 +404,10 @@ class SkillPlanManager(tk.Toplevel):
         self.plan_tree.delete(*self.plan_tree.get_children())
         for s in self.plan_skills:
             self.plan_tree.insert("", tk.END, values=(s["name"], s["level"]))
+        # Update header with count
+        if self.current_plan_name:
+            self.plan_header_var.set(
+                f"CURRENT PLAN — {self.current_plan_name} ({len(self.plan_skills)} skills)")
 
     # ── Plan CRUD ────────────────────────────────────────
     def _new_plan(self):
@@ -333,6 +419,8 @@ class SkillPlanManager(tk.Toplevel):
             self._save_plan()
             self._load_plan_list()
             self._refresh_plan_tree()
+            self._filter_catalog()
+            self.plan_header_var.set(f"CURRENT PLAN — {name}")
             for i in range(self.plan_listbox.size()):
                 if self.plan_listbox.get(i).strip() == name:
                     self.plan_listbox.selection_set(i)
@@ -353,6 +441,7 @@ class SkillPlanManager(tk.Toplevel):
                 old_path.rename(new_path)
             self.current_plan_name = new_name
             self._load_plan_list()
+            self.plan_header_var.set(f"CURRENT PLAN — {new_name}")
 
     def _delete_plan(self):
         if not self.current_plan_name:
@@ -368,6 +457,8 @@ class SkillPlanManager(tk.Toplevel):
             self.plan_skills = []
             self._load_plan_list()
             self._refresh_plan_tree()
+            self._filter_catalog()
+            self.plan_header_var.set("CURRENT PLAN")
 
     # ── Add skills ───────────────────────────────────────
     def _add_to_plan(self):
@@ -379,16 +470,20 @@ class SkillPlanManager(tk.Toplevel):
             return
         level = self.add_level_var.get()
         for item_id in sel:
-            name = self.catalog_tree.item(item_id)["values"][0]
-            exists = any(s["name"] == name and s["level"] == level
-                         for s in self.plan_skills)
-            if not exists:
-                self.plan_skills.append({"name": name, "level": level})
+            name = str(self.catalog_tree.item(item_id)["values"][0])
+            # Resolve prerequisites
+            needed = resolve_prerequisites(name, level, self.plan_skills)
+            for req_name, req_level in needed:
+                exists = any(s["name"] == req_name and s["level"] == req_level
+                             for s in self.plan_skills)
+                if not exists:
+                    self.plan_skills.append({"name": req_name, "level": req_level})
         self._save_plan()
         self._refresh_plan_tree()
+        self._filter_catalog()
 
     def _add_range_to_plan(self):
-        """Add skill levels 1 through 5 for selected skill."""
+        """Add skill levels 1 through 5 for selected skill with prerequisites."""
         if not self.current_plan_name:
             messagebox.showinfo("Info", "Create or select a plan first")
             return
@@ -396,14 +491,17 @@ class SkillPlanManager(tk.Toplevel):
         if not sel:
             return
         for item_id in sel:
-            name = self.catalog_tree.item(item_id)["values"][0]
-            for lvl in range(1, 6):
-                exists = any(s["name"] == name and s["level"] == lvl
+            name = str(self.catalog_tree.item(item_id)["values"][0])
+            # Resolve prerequisites for level 5 (includes all sub-levels)
+            needed = resolve_prerequisites(name, 5, self.plan_skills)
+            for req_name, req_level in needed:
+                exists = any(s["name"] == req_name and s["level"] == req_level
                              for s in self.plan_skills)
                 if not exists:
-                    self.plan_skills.append({"name": name, "level": lvl})
+                    self.plan_skills.append({"name": req_name, "level": req_level})
         self._save_plan()
         self._refresh_plan_tree()
+        self._filter_catalog()
 
     # ── Modify plan ──────────────────────────────────────
     def _remove_from_plan(self):
@@ -416,6 +514,7 @@ class SkillPlanManager(tk.Toplevel):
                 self.plan_skills.pop(idx)
         self._save_plan()
         self._refresh_plan_tree()
+        self._filter_catalog()  # Skills removed may appear back in catalog
 
     def _move_up(self):
         sel = self.plan_tree.selection()
@@ -453,6 +552,7 @@ class SkillPlanManager(tk.Toplevel):
             self.plan_skills = []
             self._save_plan()
             self._refresh_plan_tree()
+            self._filter_catalog()
 
     # ── Export / Import ──────────────────────────────────
     def _export_clipboard(self):
@@ -466,8 +566,7 @@ class SkillPlanManager(tk.Toplevel):
         self.update()
         messagebox.showinfo("Exported",
                             f"Copied {len(lines)} skills to clipboard.\n\n"
-                            "You can paste this directly into EVE Online's\n"
-                            "skill queue import.",
+                            "Paste into EVE Online → Skill Queue → Import.",
                             parent=self)
 
     def _export_txt(self):
@@ -529,6 +628,7 @@ class SkillPlanManager(tk.Toplevel):
         self._save_plan()
         self._load_plan_list()
         self._refresh_plan_tree()
+        self._filter_catalog()
         messagebox.showinfo("Imported",
                             f"Imported {imported} skill entries.",
                             parent=self)

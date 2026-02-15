@@ -10,8 +10,8 @@ from tkinter import ttk
 class Tooltip:
     """Attach a tooltip to any tkinter widget."""
 
-    DELAY_MS = 600       # ms before tooltip appears
-    WRAP_LENGTH = 280    # max text width in pixels
+    DELAY_MS = 600
+    WRAP_LENGTH = 280
 
     def __init__(self, widget, text,
                  bg="#1c2230", fg="#c8d0e0",
@@ -47,7 +47,10 @@ class Tooltip:
         self._tw = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
-        tw.attributes("-topmost", True)
+        try:
+            tw.attributes("-topmost", True)
+        except Exception:
+            pass
 
         frame = tk.Frame(tw, bg="#2a3044", padx=1, pady=1)
         frame.pack()
@@ -72,10 +75,7 @@ class TreeviewTooltip:
     Row-aware tooltip for ttk.Treeview.
 
     Shows a tooltip when the user hovers over a row for DELAY_MS.
-    The tooltip text is provided by a callback function:
-        text_func(item_values) -> str | None
-    where item_values is the tuple of column values for the hovered row.
-    Return None or "" to suppress the tooltip for that row.
+    text_func(item_values) -> str | (title, description) | None
     """
 
     DELAY_MS = 500
@@ -96,69 +96,103 @@ class TreeviewTooltip:
         self._tw = None
         self._after_id = None
         self._current_row = None
+        self._mouse_x = 0
+        self._mouse_y = 0
 
         treeview.bind("<Motion>", self._on_motion, add="+")
         treeview.bind("<Leave>", self._on_leave, add="+")
         treeview.bind("<ButtonPress>", self._on_leave, add="+")
+        treeview.bind("<MouseWheel>", self._on_leave, add="+")
 
     def _on_motion(self, event):
-        row_id = self.tree.identify_row(event.y)
+        # Save mouse position as integers (event object may be recycled)
+        mx = int(event.x_root)
+        my = int(event.y_root)
+        wy = int(event.y)
+        self._mouse_x = mx
+        self._mouse_y = my
+
+        try:
+            row_id = self.tree.identify_row(wy)
+        except Exception:
+            row_id = ""
+
         if row_id != self._current_row:
+            self._hide()
+            self._cancel_timer()
             self._current_row = row_id
-            self._cancel()
             if row_id:
                 self._after_id = self.tree.after(
-                    self.DELAY_MS,
-                    lambda: self._show(event.x_root, event.y_root, row_id))
+                    self.DELAY_MS, self._try_show)
 
     def _on_leave(self, event=None):
         self._current_row = None
-        self._cancel()
-
-    def _cancel(self):
-        if self._after_id:
-            self.tree.after_cancel(self._after_id)
-            self._after_id = None
+        self._cancel_timer()
         self._hide()
 
-    def _show(self, x_root, y_root, row_id):
-        if self._tw:
+    def _cancel_timer(self):
+        if self._after_id:
+            try:
+                self.tree.after_cancel(self._after_id)
+            except Exception:
+                pass
+            self._after_id = None
+
+    def _try_show(self):
+        """Called after delay. Show tooltip if still on the same row."""
+        self._after_id = None
+        row_id = self._current_row
+        if not row_id:
             return
-        # Check row still exists and is still hovered
-        if self._current_row != row_id:
-            return
+
         try:
             item = self.tree.item(row_id)
-        except tk.TclError:
+        except Exception:
             return
 
         values = item.get("values", ())
-        text_or_parts = self.text_func(values)
+        if not values:
+            # For tree-mode treeviews, try the text
+            text = item.get("text", "")
+            if text:
+                values = (text,)
+            else:
+                return
 
-        if not text_or_parts:
+        try:
+            result = self.text_func(values)
+        except Exception:
             return
 
-        # text_func can return a string or a tuple of (title, description)
-        if isinstance(text_or_parts, tuple) and len(text_or_parts) == 2:
-            title, description = text_or_parts
+        if not result:
+            return
+
+        if isinstance(result, tuple) and len(result) == 2:
+            title, description = result
         else:
             title = None
-            description = str(text_or_parts)
+            description = str(result)
 
         if not description:
             return
 
+        self._show_popup(title, description)
+
+    def _show_popup(self, title, description):
+        if self._tw:
+            return
+
         self._tw = tw = tk.Toplevel(self.tree)
         tw.wm_overrideredirect(True)
-        tw.attributes("-topmost", True)
-
-        # Position: slightly below and to the right of cursor
-        tw.wm_geometry(f"+{x_root + 16}+{y_root + 12}")
+        try:
+            tw.attributes("-topmost", True)
+        except Exception:
+            pass
 
         outer = tk.Frame(tw, bg="#2a3044", padx=1, pady=1)
         outer.pack()
         inner = tk.Frame(outer, bg=self.bg)
-        inner.pack(padx=0, pady=0)
+        inner.pack()
 
         if title:
             tk.Label(inner, text=title,
@@ -176,7 +210,36 @@ class TreeviewTooltip:
                  padx=10, pady=(3 if title else 6, 6),
                  anchor="w").pack(fill=tk.X)
 
+        # Position near the mouse
+        tw.update_idletasks()
+        tw_w = tw.winfo_reqwidth()
+        tw_h = tw.winfo_reqheight()
+
+        # Try to get current pointer position
+        try:
+            px = self.tree.winfo_pointerx()
+            py = self.tree.winfo_pointery()
+        except Exception:
+            px = self._mouse_x
+            py = self._mouse_y
+
+        x = px + 16
+        y = py + 16
+
+        # Keep on screen
+        screen_w = self.tree.winfo_screenwidth()
+        screen_h = self.tree.winfo_screenheight()
+        if x + tw_w > screen_w:
+            x = px - tw_w - 8
+        if y + tw_h > screen_h:
+            y = py - tw_h - 8
+
+        tw.wm_geometry(f"+{x}+{y}")
+
     def _hide(self):
         if self._tw:
-            self._tw.destroy()
+            try:
+                self._tw.destroy()
+            except Exception:
+                pass
             self._tw = None

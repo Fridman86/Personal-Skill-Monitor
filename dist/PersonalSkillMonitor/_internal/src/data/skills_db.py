@@ -545,6 +545,36 @@ SKILLS = {
     89611: ("Expedition Command", "Fleet Support", "Support"),
     60377: ("Simple Ore Processing", "Resource Processing", "Resource"),
     60378: ("Coherent Ore Processing", "Resource Processing", "Resource"),
+
+    # Drones (additional)
+    57164: ("Salvage Drone Specialization", "Drones", "Combat"),
+
+    # SKINR / Ship Customization
+    73275: ("Basic Induction", "SKINR", "Industry"),
+    73276: ("Advanced Induction Efficiency", "SKINR", "Industry"),
+    73277: ("Peak Induction Acceleration", "SKINR", "Industry"),
+    73278: ("Batch Sequencing", "SKINR", "Industry"),
+    73279: ("Mass Sequencing", "SKINR", "Industry"),
+    73280: ("Industrial Sequencing", "SKINR", "Industry"),
+    73281: ("Parallel Sequencing", "SKINR", "Industry"),
+    73282: ("Multi-thread Sequencing", "SKINR", "Industry"),
+    73283: ("Hub Promotion", "SKINR", "Industry"),
+    73284: ("Hub Algorithm Optimization", "SKINR", "Industry"),
+    73285: ("Paragon Relations", "SKINR", "Industry"),
+    73286: ("Studio Management", "SKINR", "Industry"),
+    73287: ("Advanced Studio Management", "SKINR", "Industry"),
+
+    # Catalyst Expansion (Nov 2025) — Mining / ORE
+    89612: ("Mining Destroyer", "Spaceship Command", "Combat"),
+    89613: ("Mining Precision", "Resource Processing", "Resource"),
+    89614: ("Mining Exploitation", "Resource Processing", "Resource"),
+    89615: ("Prismaticite Processing", "Resource Processing", "Resource"),
+
+    # Structure Management (additional)
+    37800: ("Structure Weapon Systems", "Structure Management", "Other"),
+
+    # Invulnerability / Miscellaneous
+    52308: ("Upwell Stargate Operation", "Structure Management", "Other"),
 }
 
 def get_skill_name(skill_id: int) -> str:
