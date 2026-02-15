@@ -226,6 +226,10 @@ class TreeviewTooltip:
                 tip.attributes("-topmost", True)
             except Exception:
                 pass
+            try:
+                tip.attributes("-type", "tooltip")
+            except Exception:
+                pass
 
             outer = tk.Frame(tip, bg="#2a3044", padx=1, pady=1)
             outer.pack()
