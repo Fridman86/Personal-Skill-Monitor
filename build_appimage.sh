@@ -31,7 +31,6 @@ echo "Running PyInstaller..."
 "$VENV/bin/pyinstaller" --noconfirm --onedir --windowed \
     --name "$APP_NAME" \
     --add-data "src:src" \
-    --add-data "esi_client.py:." \
     --add-data "config.env:." \
     --add-data "src/gui/assets/icon.png:." \
     --hidden-import "PIL._tkinter_finder" \

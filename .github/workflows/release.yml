@@ -63,7 +63,7 @@ jobs:
           
       - name: Build EXE
         run: |
-          pyinstaller --noconfirm --onedir --windowed --name "PersonalSkillMonitor" --add-data "src;src" --add-data "esi_client.py;." --add-data "config.env;." --add-data "src/gui/assets/icon.png;." --icon "src/gui/assets/icon.ico" main.py
+          pyinstaller --noconfirm --onedir --windowed --name "PersonalSkillMonitor" --add-data "src;src" --add-data "config.env;." --add-data "src/gui/assets/icon.png;." --icon "src/gui/assets/icon.ico" main.py
           
       - name: Zip EXE folder
         run: Compress-Archive -Path dist/PersonalSkillMonitor -DestinationPath PersonalSkillMonitor-Windows.zip
