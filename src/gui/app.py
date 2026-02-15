@@ -1,27 +1,40 @@
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from __future__ import annotations
+
 import json
+import logging
 import webbrowser
 from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, font as tkfont
+
+from src.core.controller import AppController, CharacterData
 from src.gui.components.skill_view import SkillView
 from src.gui.components.queue_view import QueueView
 from src.gui.components.skill_plan import SkillPlanManager
-from src.core.auth import AuthManager
-from src.core.esi import ESIClient
 from src.utils.export import ExportManager
 from src.data import skills_db
-from src.ui.theme_eve import setup_eve_dark_theme, BG_SIDEBAR, BG_MAIN, BG_PANEL, \
-    BORDER, FG_DEFAULT, FG_BRIGHT, FG_TEAL, FG_DIM, BG_SELECT, BORDER_LIGHT
+from src.ui.theme_eve import (
+    setup_eve_dark_theme,
+    BG_SIDEBAR, BG_MAIN, BG_PANEL,
+    BORDER, FG_DEFAULT, FG_BRIGHT, FG_TEAL, FG_DIM, BG_SELECT, BORDER_LIGHT,
+    DARK_THEME, LIGHT_THEME,
+)
 from src.ui.tooltip import Tooltip
 from src.utils.paths import PathManager
+from src.utils.config import Config
+
+logger = logging.getLogger(__name__)
 
 
 class EVEApp(tk.Tk):
-    def __init__(self, config):
+    """Main application window — thin GUI layer that delegates to AppController."""
+
+    def __init__(self, config: Config) -> None:
         super().__init__()
-        self.app_config = config
-        self.auth_manager = AuthManager(config)
-        self.esi_client = ESIClient(self.auth_manager, config)
+        self.controller = AppController(config)
         self.export_manager = ExportManager()
 
         self.title("Personal Skill Monitor")
@@ -34,15 +47,13 @@ class EVEApp(tk.Tk):
             try:
                 self.icon_photo = tk.PhotoImage(file=str(icon_path))
                 self.wm_iconphoto(True, self.icon_photo)
-            except Exception as e:
-                print(f"[WARNING] Failed to load icon: {e}")
+            except tk.TclError as e:
+                logger.warning("Failed to load icon: %s", e)
 
-        self.current_char_id = None
-        self.chars = []
-        self.current_skills = []
-        self.current_queue = []
+        self.current_skills: list[dict] = []
+        self.current_queue: list[dict] = []
 
-        self.settings_file = PathManager.get_settings_path()
+        self.settings_file: Path = PathManager.get_settings_path()
         self.theme_var = tk.StringVar(value=self._load_setting("theme", "EVE Dark"))
 
         self._setup_ui()
@@ -50,15 +61,15 @@ class EVEApp(tk.Tk):
         self._load_characters()
 
     # ── Settings ─────────────────────────────────────────
-    def _load_setting(self, key, default):
+    def _load_setting(self, key: str, default: Any = None) -> Any:
         try:
             with open(self.settings_file, "r") as f:
                 return json.load(f).get(key, default)
         except (FileNotFoundError, json.JSONDecodeError):
             return default
 
-    def _save_setting(self, key, value):
-        settings = {}
+    def _save_setting(self, key: str, value: Any) -> None:
+        settings: dict = {}
         try:
             with open(self.settings_file, "r") as f:
                 settings = json.load(f)
@@ -69,7 +80,7 @@ class EVEApp(tk.Tk):
             json.dump(settings, f)
 
     # ── Theme ────────────────────────────────────────────
-    def _apply_style(self):
+    def _apply_style(self) -> None:
         style = ttk.Style(self)
         theme = self.theme_var.get()
 
@@ -77,25 +88,26 @@ class EVEApp(tk.Tk):
             setup_eve_dark_theme(style)
             self.configure(bg=BG_MAIN)
         elif theme == "Dark":
+            t = DARK_THEME
             style.theme_use("clam")
-            bg = "#2d2d2d"
-            fg = "#ffffff"
-            style.configure("Treeview", background=bg, foreground=fg,
-                            fieldbackground=bg, rowheight=25)
-            style.configure("Treeview.Heading", background="#3d3d3d", foreground=fg)
-            style.map("Treeview", background=[("selected", "#4a4a4a")])
-            style.configure("TFrame", background=bg)
-            style.configure("TLabel", background=bg, foreground=fg)
+            style.configure("Treeview", background=t["bg"], foreground=t["fg"],
+                            fieldbackground=t["bg"], rowheight=25)
+            style.configure("Treeview.Heading", background=t["heading_bg"],
+                            foreground=t["fg"])
+            style.map("Treeview", background=[("selected", t["select_bg"])])
+            style.configure("TFrame", background=t["bg"])
+            style.configure("TLabel", background=t["bg"], foreground=t["fg"])
             style.configure("TButton", padding=5)
-            style.configure("TCheckbutton", background=bg, foreground=fg)
-            self.configure(bg=bg)
+            style.configure("TCheckbutton", background=t["bg"], foreground=t["fg"])
+            self.configure(bg=t["bg"])
         else:
+            t = LIGHT_THEME
             style.theme_use("clam")
             style.configure("Treeview", rowheight=25)
             style.configure("TButton", padding=5)
-            style.configure("TFrame", background="#f5f5f5")
-            style.configure("TLabel", background="#f5f5f5")
-            self.configure(bg="#f5f5f5")
+            style.configure("TFrame", background=t["bg"])
+            style.configure("TLabel", background=t["bg"])
+            self.configure(bg=t["bg"])
 
     # ── UI Layout ────────────────────────────────────────
     def _setup_ui(self):
@@ -282,57 +294,57 @@ class EVEApp(tk.Tk):
             pass
 
     # ── Character management ─────────────────────────────
-    def _load_characters(self):
+    def _load_characters(self) -> None:
         for item in self.char_tree.get_children():
             self.char_tree.delete(item)
 
-        self.chars = self.app_config.get_characters()
-        for idx, char in enumerate(self.chars):
+        chars = self.controller.load_characters()
+        for idx, char in enumerate(chars):
             self.char_tree.insert("", tk.END, iid=str(idx),
                                   text=f"  {char['name']}")
 
-        if self.current_skills:
-            unknowns = [f"{s.get('skill_id')}" for s in self.current_skills
-                        if skills_db.is_unknown_skill(s.get("skill_id"))]
-            if unknowns:
-                print(f"[INFO] Unknown skill IDs: {', '.join(unknowns)}")
+        unknowns = self.controller.get_unknown_skill_ids()
+        if unknowns:
+            logger.info("Unknown skill IDs: %s", ", ".join(unknowns))
 
-    def _on_char_select(self, event):
+    def _on_char_select(self, event: tk.Event) -> None:
         sel = self.char_tree.selection()
         if sel:
             idx = int(sel[0])
-            char = self.chars[idx]
-            self.current_char_id = char["id"]
-            self.char_title_var.set(char["name"])
-            self._refresh_data()
+            chars = self.controller.characters
+            if idx < len(chars):
+                char = chars[idx]
+                self.controller.select_character(char["id"])
+                self.char_title_var.set(char["name"])
+                self._refresh_data()
 
-    def _add_character(self):
-        def on_auth_success(code):
+    def _add_character(self) -> None:
+        def on_auth_success(code: str) -> None:
             try:
-                token_data = self.auth_manager.exchange_code(code)
-                verify = self.auth_manager.verify_token(token_data["access_token"])
-                cid = verify["CharacterID"]
-                cname = verify["CharacterName"]
-                self.app_config.update_character_token(cid, cname, token_data)
+                cname = self.controller.finish_add_character(code)
                 self.after(0, self._load_characters)
-                messagebox.showinfo("Success", f"Character {cname} added!")
+                self.after(0, lambda: messagebox.showinfo(
+                    "Success", f"Character {cname} added!"))
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to add character: {e}")
-        self.auth_manager.start_auth_flow(on_auth_success)
+                self.after(0, lambda: messagebox.showerror(
+                    "Error", f"Failed to add character: {e}"))
+        self.controller.start_add_character(on_auth_success)
 
-    def _remove_character(self):
+    def _remove_character(self) -> None:
         sel = self.char_tree.selection()
         if not sel:
             messagebox.showwarning("Warning", "No character selected")
             return
         idx = int(sel[0])
-        char = self.chars[idx]
+        chars = self.controller.characters
+        if idx >= len(chars):
+            return
+        char = chars[idx]
         if messagebox.askyesno("Confirm",
                                f"Remove '{char['name']}'?\n\n"
                                "Tokens and cached data will be deleted."):
-            if self.app_config.remove_character(char["id"]):
-                if self.current_char_id == char["id"]:
-                    self.current_char_id = None
+            if self.controller.remove_character(char["id"]):
+                if self.controller.current_char_id is None:
                     self.char_title_var.set("Select a character")
                     self.skill_view.set_skills([])
                     self.queue_view.set_queue([])
@@ -344,43 +356,54 @@ class EVEApp(tk.Tk):
             else:
                 messagebox.showerror("Error", "Failed to remove character.")
 
-    def _refresh_data(self):
-        if not self.current_char_id:
+    def _refresh_data(self) -> None:
+        """Trigger an async data refresh — ESI calls run in a background thread."""
+        if not self.controller.current_char_id:
             return
-        try:
-            skills_data = self.esi_client.get_skills(self.current_char_id)
-            queue_data = self.esi_client.get_skill_queue(self.current_char_id)
-            attr_data = self.esi_client.get_attributes(self.current_char_id)
 
-            if skills_data:
-                self.current_skills = skills_data.get("skills", [])
-                self.skill_view.set_skills(self.current_skills)
-                total = skills_data.get("total_sp", 0)
-                unalloc = skills_data.get("unallocated_sp", 0)
-                self.total_sp_var.set(f"Total SP: {total:,}")
-                self.unallocated_sp_var.set(f"Unallocated SP: {unalloc:,}")
+        self.cache_status_var.set("Syncing…")
 
-            if queue_data:
-                self.current_queue = queue_data
-                self.queue_view.set_queue(self.current_queue, attr_data)
+        def _on_success(data: CharacterData) -> None:
+            # Schedule UI update on the main thread
+            self.after(0, lambda: self._apply_refresh_result(data))
 
-            if attr_data:
-                i = attr_data.get("intelligence", 0)
-                m = attr_data.get("memory", 0)
-                p = attr_data.get("perception", 0)
-                w = attr_data.get("willpower", 0)
-                c = attr_data.get("charisma", 0)
-                self.queue_view.sp_min_var.set(
-                    f"Attributes: INT:{i} MEM:{m} PER:{p} WIL:{w} CHA:{c}")
+        def _on_error(msg: str) -> None:
+            self.after(0, lambda: self._apply_refresh_error(msg))
 
-            self.cache_status_var.set("Data synced with ESI")
-        except Exception as e:
-            self.cache_status_var.set("Offline / Error")
-            print(f"[ERROR] Refresh failed: {e}")
+        self.controller.refresh_data_async(_on_success, _on_error)
+
+    def _apply_refresh_result(self, data: CharacterData) -> None:
+        """Apply fetched data to UI widgets (runs on main thread)."""
+        if data.skills:
+            self.current_skills = data.skills
+            self.skill_view.set_skills(self.current_skills)
+            self.total_sp_var.set(f"Total SP: {data.total_sp:,}")
+            self.unallocated_sp_var.set(f"Unallocated SP: {data.unallocated_sp:,}")
+
+        if data.queue:
+            self.current_queue = data.queue
+            self.queue_view.set_queue(self.current_queue, data.attributes or None)
+
+        if data.attributes:
+            a = data.attributes
+            i = a.get("intelligence", 0)
+            m = a.get("memory", 0)
+            p = a.get("perception", 0)
+            w = a.get("willpower", 0)
+            c = a.get("charisma", 0)
+            self.queue_view.sp_min_var.set(
+                f"Attributes: INT:{i} MEM:{m} PER:{p} WIL:{w} CHA:{c}")
+
+        self.cache_status_var.set("Data synced with ESI")
+
+    def _apply_refresh_error(self, msg: str) -> None:
+        """Handle refresh failure (runs on main thread)."""
+        self.cache_status_var.set("Offline / Error")
+        logger.error("Refresh failed: %s", msg)
 
     # ── Export ───────────────────────────────────────────
-    def _on_export(self, fmt):
-        if not self.current_char_id:
+    def _on_export(self, fmt: str) -> None:
+        if not self.controller.current_char_id:
             messagebox.showwarning("Warning", "Select a character first")
             return
 
@@ -428,10 +451,10 @@ class EVEApp(tk.Tk):
                     messagebox.showinfo("Export", res)
 
     # ── Misc ─────────────────────────────────────────────
-    def _open_skill_plan(self):
+    def _open_skill_plan(self) -> None:
         SkillPlanManager(self, self.current_skills)
 
-    def _on_about_click(self):
+    def _on_about_click(self) -> None:
         top = tk.Toplevel(self)
         top.title("About")
         top.resizable(True, True)
@@ -483,7 +506,7 @@ class EVEApp(tk.Tk):
         coffee_frame.pack(pady=(15, 0))
         
         lbl_coffee = tk.Label(coffee_frame, text="☕ Buy me a coffee",
-                              font=("Cookie", 12, "bold") if "Cookie" in tk.font.families() else ("Segoe UI", 11, "bold"),
+                              font=("Cookie", 12, "bold") if "Cookie" in tkfont.families() else ("Segoe UI", 11, "bold"),
                               fg="#000000", bg="#FFDD00", cursor="hand2")
         lbl_coffee.pack()
         
@@ -505,7 +528,7 @@ class EVEApp(tk.Tk):
         y = self.winfo_y() + (self.winfo_height() // 2) - (h // 2)
         top.geometry(f"+{x}+{y}")
 
-    def _on_quit(self):
+    def _on_quit(self) -> None:
         if messagebox.askyesno("Exit", "Exit Personal Skill Monitor?"):
             self.destroy()
 

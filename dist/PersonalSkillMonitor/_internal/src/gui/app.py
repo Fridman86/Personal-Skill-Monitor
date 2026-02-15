@@ -432,15 +432,80 @@ class EVEApp(tk.Tk):
         SkillPlanManager(self, self.current_skills)
 
     def _on_about_click(self):
-        messagebox.showinfo("About",
-                            "Personal Skill Monitor v0.2.0\n\n"
-                            "Lightweight EVE Online skill management.\n\n"
-                            "Author: Fridman86\n"
-                            "GitHub: github.com/Fridman86/Personal-Skill-Monitor")
+        top = tk.Toplevel(self)
+        top.title("About")
+        top.resizable(True, True)
+        
+        # Apply theme colors roughly
+        bg = "#1c2230" 
+        fg = "#e0e0e0"
+        accent = "#3aa8d0"
+            
+        top.configure(bg=bg)
+        
+        # Main container with padding
+        main_f = tk.Frame(top, bg=bg, padx=30, pady=25)
+        main_f.pack(fill=tk.BOTH, expand=True)
+        
+        # Header
+        tk.Label(main_f, text="Personal Skill Monitor", 
+                 font=("Segoe UI", 16, "bold"), fg=accent, bg=bg).pack(pady=(0, 5))
+        
+        tk.Label(main_f, text="v0.2.1", 
+                 font=("Segoe UI", 10), fg="#888888", bg=bg).pack(pady=(0, 20))
+        
+        # Description
+        desc = ("Lightweight EVE Online skill management tool.\n"
+                "Track skills, view queue, and plan your training.")
+        tk.Label(main_f, text=desc, font=("Segoe UI", 10), 
+                 fg=fg, bg=bg, justify=tk.CENTER, wraplength=400).pack(pady=10)
+                 
+        # Links Frame
+        links = tk.Frame(main_f, bg=bg)
+        links.pack(pady=20)
+        
+        # GitHub
+        def open_github(e=None):
+            webbrowser.open("https://github.com/Fridman86/Personal-Skill-Monitor")
+            
+        lbl_git = tk.Label(links, text="GitHub Repository", 
+                           font=("Segoe UI", 10, "underline"), 
+                           fg=accent, bg=bg, cursor="hand2")
+        lbl_git.pack(pady=5)
+        lbl_git.bind("<Button-1>", open_github)
+        
+        # Buy Me a Coffee
+        def open_coffee(e=None):
+            webbrowser.open("https://buymeacoffee.com/ifridman")
+            
+        # Coffee container
+        coffee_frame = tk.Frame(links, bg="#FFDD00", padx=15, pady=8, cursor="hand2")
+        coffee_frame.pack(pady=(15, 0))
+        
+        lbl_coffee = tk.Label(coffee_frame, text="☕ Buy me a coffee",
+                              font=("Cookie", 12, "bold") if "Cookie" in tk.font.families() else ("Segoe UI", 11, "bold"),
+                              fg="#000000", bg="#FFDD00", cursor="hand2")
+        lbl_coffee.pack()
+        
+        coffee_frame.bind("<Button-1>", open_coffee)
+        lbl_coffee.bind("<Button-1>", open_coffee)
+        
+        # Close button at the bottom
+        btn_close = tk.Button(main_f, text="Close", command=top.destroy,
+                              bg="#2a3044", fg=fg, bd=0, padx=20, pady=5, cursor="hand2")
+        btn_close.pack(pady=(30, 0))
+
+        # Center on screen
+        top.update_idletasks()
+        top.minsize(top.winfo_reqwidth(), top.winfo_reqheight())
+        
+        w = top.winfo_reqwidth()
+        h = top.winfo_reqheight()
+        x = self.winfo_x() + (self.winfo_width() // 2) - (w // 2)
+        y = self.winfo_y() + (self.winfo_height() // 2) - (h // 2)
+        top.geometry(f"+{x}+{y}")
 
     def _on_quit(self):
         if messagebox.askyesno("Exit", "Exit Personal Skill Monitor?"):
             self.destroy()
 
-    def _on_coffee_click(self):
-        webbrowser.open("https://buymeacoffee.com/ifridman")
