@@ -75,10 +75,6 @@ class TreeviewTooltip:
     Row-aware tooltip for ttk.Treeview.
 
     Uses always-on polling (every POLL_MS) to check mouse position.
-    Does NOT rely on Enter/Leave/Motion events which can be unreliable
-    on some Linux/tk configurations or inside PanedWindow hierarchies.
-
-    text_func(item_values) -> str | (title, description) | None
     """
 
     DELAY_MS = 500       # hover time before showing tooltip
@@ -101,12 +97,22 @@ class TreeviewTooltip:
         self._current_row = None
         self._dwell_ms = 0
         self._alive = True
+        
+        self._log("Initialized TreeviewTooltip")
 
         # Cleanup on widget destroy
         treeview.bind("<Destroy>", self._on_destroy, add="+")
 
-        # Start polling immediately (delayed by 1s so UI can finish setting up)
+        # Start polling immediately (delayed by 1s)
         treeview.after(1000, self._poll)
+
+    def _log(self, msg):
+        try:
+            with open("/tmp/psm_debug.log", "a") as f:
+                import datetime
+                f.write(f"{datetime.datetime.now()} {msg}\n")
+        except Exception:
+            pass
 
     def _on_destroy(self, event=None):
         self._alive = False
@@ -133,6 +139,8 @@ class TreeviewTooltip:
 
             rel_x = px - rx
             rel_y = py - ry
+            
+            # self._log(f"Poll: ptr=({px},{py}) rel=({rel_x},{rel_y}) size=({tw},{th})")
 
             # Check if mouse is over the treeview area
             if 0 <= rel_x <= tw and 0 <= rel_y <= th:
@@ -143,6 +151,7 @@ class TreeviewTooltip:
                         # Still on the same row
                         self._dwell_ms += self.POLL_MS
                         if self._dwell_ms >= self.DELAY_MS and self._tw is None:
+                            self._log(f"Triggering tooltip for row {row_id}")
                             self._show_tooltip(row_id, px, py)
                     else:
                         # Moved to a different row
@@ -162,8 +171,8 @@ class TreeviewTooltip:
                     self._current_row = None
                     self._dwell_ms = 0
 
-        except (tk.TclError, RuntimeError):
-            # Widget destroyed
+        except (tk.TclError, RuntimeError) as e:
+            self._log(f"Poll error: {e}")
             self._alive = False
             return
 
