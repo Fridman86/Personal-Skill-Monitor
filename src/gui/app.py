@@ -11,10 +11,15 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, font as tkfont
 
 from src.core.controller import AppController, CharacterData
+from src.core.notifications import NotificationMonitor
 from src.gui.components.skill_view import SkillView
 from src.gui.components.queue_view import QueueView
 from src.gui.components.skill_plan import SkillPlanManager
 from src.utils.export import ExportManager
+from src.utils.calculator import (
+    training_time, plan_total_time, format_duration,
+    get_skill_rank, _SP_PER_LEVEL,
+)
 from src.data import skills_db
 from src.ui.theme_eve import (
     setup_eve_dark_theme,
@@ -34,7 +39,7 @@ class EVEApp(tk.Tk):
 
     def __init__(self, config: Config) -> None:
         super().__init__()
-        self.controller = AppController(config)
+        self.controller     = AppController(config)
         self.export_manager = ExportManager()
 
         self.title("Personal Skill Monitor")
@@ -51,16 +56,28 @@ class EVEApp(tk.Tk):
                 logger.warning("Failed to load icon: %s", e)
 
         self.current_skills: list[dict] = []
-        self.current_queue: list[dict] = []
+        self.current_queue:  list[dict] = []
+        self.current_attrs:  dict       = {}
 
         self.settings_file: Path = PathManager.get_settings_path()
         self.theme_var = tk.StringVar(value=self._load_setting("theme", "EVE Dark"))
+
+        # Notification monitor
+        notif_enabled = self._load_setting("notifications_enabled", True)
+        self._notif_monitor = NotificationMonitor(
+            self.controller, interval_minutes=5, threshold_minutes=5,
+            enabled=notif_enabled,
+        )
+        self._notif_monitor.start()
 
         self._setup_ui()
         self._apply_style()
         self._load_characters()
 
-    # ── Settings ─────────────────────────────────────────
+        # Stop monitor on close
+        self.protocol("WM_DELETE_WINDOW", self._on_quit)
+
+    # ── Settings ─────────────────────────────────────────────────────────────
     def _load_setting(self, key: str, default: Any = None) -> Any:
         try:
             with open(self.settings_file, "r") as f:
@@ -79,7 +96,7 @@ class EVEApp(tk.Tk):
         with open(self.settings_file, "w") as f:
             json.dump(settings, f)
 
-    # ── Theme ────────────────────────────────────────────
+    # ── Theme ─────────────────────────────────────────────────────────────────
     def _apply_style(self) -> None:
         style = ttk.Style(self)
         theme = self.theme_var.get()
@@ -95,41 +112,26 @@ class EVEApp(tk.Tk):
             style.configure("Treeview.Heading", background=t["heading_bg"],
                             foreground=t["fg"])
             style.map("Treeview", background=[("selected", t["select_bg"])])
-            style.configure("TFrame", background=t["bg"])
-            style.configure("TLabel", background=t["bg"], foreground=t["fg"])
-            style.configure("TButton", padding=5)
+            style.configure("TFrame",      background=t["bg"])
+            style.configure("TLabel",      background=t["bg"], foreground=t["fg"])
+            style.configure("TButton",     padding=5)
             style.configure("TCheckbutton", background=t["bg"], foreground=t["fg"])
             self.configure(bg=t["bg"])
         else:
             t = LIGHT_THEME
             style.theme_use("clam")
             style.configure("Treeview", rowheight=25)
-            style.configure("TButton", padding=5)
-            style.configure("TFrame", background=t["bg"])
-            style.configure("TLabel", background=t["bg"])
+            style.configure("TButton",  padding=5)
+            style.configure("TFrame",   background=t["bg"])
+            style.configure("TLabel",   background=t["bg"])
             self.configure(bg=t["bg"])
 
-    # ── UI Layout ────────────────────────────────────────
+    # ── UI Layout ─────────────────────────────────────────────────────────────
     def _setup_ui(self):
-        # ╔══════════════════╤═══════════════════════════════╗
-        # ║     SIDEBAR      │       CONTENT AREA            ║
-        # ║  (resizable)     │  Title bar + Export           ║
-        # ║                  │  Stats                        ║
-        # ║  PSM branding    │  ┌────────────────────────┐   ║
-        # ║  ────────        │  │ Skill Table            │   ║
-        # ║  CHARACTERS      │  ├────────────────────────┤   ║
-        # ║   · Kobi         │  │ Skill Queue            │   ║
-        # ║   · Orli         │  └────────────────────────┘   ║
-        # ║  ────────        │                               ║
-        # ║  Nav buttons     │                               ║
-        # ╚══════════════════╧═══════════════════════════════╝
-
         # ── Main horizontal PanedWindow for resizable sidebar ──
         self.main_pw = tk.PanedWindow(self, orient=tk.HORIZONTAL,
-                                      sashwidth=4,
-                                      sashrelief=tk.FLAT,
-                                      bg=BORDER_LIGHT,
-                                      borderwidth=0,
+                                      sashwidth=4, sashrelief=tk.FLAT,
+                                      bg=BORDER_LIGHT, borderwidth=0,
                                       opaqueresize=True)
         self.main_pw.pack(fill=tk.BOTH, expand=True)
 
@@ -139,7 +141,6 @@ class EVEApp(tk.Tk):
         # Branding
         brand = tk.Frame(self.sidebar, bg=BG_SIDEBAR)
         brand.pack(fill=tk.X, pady=(0, 2))
-
         tk.Label(brand, text="PSM", font=("Segoe UI", 16, "bold"),
                  fg=FG_TEAL, bg=BG_SIDEBAR, anchor="w").pack(padx=14, pady=(14, 0))
         tk.Label(brand, text="Personal Skill Monitor",
@@ -179,6 +180,8 @@ class EVEApp(tk.Tk):
              "Fetch latest skills and queue\nfrom EVE ESI API."),
             ("📋  Skill Plans",     self._open_skill_plan,
              "Open the Skill Plan Manager to\ncreate custom training plans."),
+            ("⏱  Calculator",      self._open_calculator,
+             "Training time calculator.\nEstimate how long a skill takes to train."),
             ("ℹ  About",           self._on_about_click,
              "Application info and version."),
             ("⏻  Quit",            self._on_quit,
@@ -233,14 +236,22 @@ class EVEApp(tk.Tk):
                               command=lambda: self._on_export("clipboard"))
         btn_copy.pack(side=tk.LEFT, padx=2)
         Tooltip(btn_copy, "Copy skills to clipboard in EVE format:\n"
-                "\"Skill Name Level\"\n\n"
-                "Paste directly into EVE Online skill queue.")
+                "\"Skill Name Level\"\n\nPaste directly into EVE Online skill queue.")
 
         btn_csv = ttk.Button(export_f, text="💾 CSV", style="Accent.TButton",
                              command=lambda: self._on_export("csv"))
         btn_csv.pack(side=tk.LEFT, padx=2)
-        Tooltip(btn_csv, "Save skills to a CSV file.\n"
-                "Format: Skill Name, Level")
+        Tooltip(btn_csv, "Save skills to a CSV file.\nFormat: Skill Name, Level")
+
+        btn_md = ttk.Button(export_f, text="📄 MD", style="Accent.TButton",
+                            command=lambda: self._on_export("markdown"))
+        btn_md.pack(side=tk.LEFT, padx=2)
+        Tooltip(btn_md, "Save skills as a Markdown table.\nGreat for GitHub / Notion.")
+
+        btn_html = ttk.Button(export_f, text="🌐 HTML", style="Accent.TButton",
+                              command=lambda: self._on_export("html"))
+        btn_html.pack(side=tk.LEFT, padx=2)
+        Tooltip(btn_html, "Save skills as a styled HTML page.\nOpen in any browser.")
 
         # Top-strip bottom border
         tk.Frame(content, bg=BORDER, height=1).pack(fill=tk.X)
@@ -249,9 +260,9 @@ class EVEApp(tk.Tk):
         stats_f = tk.Frame(content, bg=BG_MAIN)
         stats_f.pack(fill=tk.X, padx=16, pady=(8, 4))
 
-        self.total_sp_var = tk.StringVar(value="Total SP: 0")
+        self.total_sp_var       = tk.StringVar(value="Total SP: 0")
         self.unallocated_sp_var = tk.StringVar(value="Unallocated SP: 0")
-        self.cache_status_var = tk.StringVar(value="")
+        self.cache_status_var   = tk.StringVar(value="")
 
         lbl_sp = tk.Label(stats_f, textvariable=self.total_sp_var,
                           font=("Segoe UI", 9), fg=FG_TEAL, bg=BG_MAIN)
@@ -262,6 +273,16 @@ class EVEApp(tk.Tk):
                           font=("Segoe UI", 9), fg=FG_TEAL, bg=BG_MAIN)
         lbl_un.pack(side=tk.LEFT, padx=(0, 20))
         Tooltip(lbl_un, "Skill Points available to allocate\n(free SP from injectors, etc.).")
+
+        # Notification toggle in stats bar
+        self._notif_var = tk.BooleanVar(
+            value=self._load_setting("notifications_enabled", True))
+        notif_cb = ttk.Checkbutton(stats_f, text="🔔 Notifications",
+                                   variable=self._notif_var,
+                                   command=self._on_notif_toggle)
+        notif_cb.pack(side=tk.LEFT, padx=(0, 10))
+        Tooltip(notif_cb, "Enable/disable desktop notifications\n"
+                          "when a skill is about to finish training.")
 
         tk.Label(stats_f, textvariable=self.cache_status_var,
                  font=("Segoe UI", 8, "italic"), fg=FG_DIM, bg=BG_MAIN).pack(side=tk.RIGHT)
@@ -281,11 +302,9 @@ class EVEApp(tk.Tk):
         self.main_pw.add(self.sidebar, minsize=140, width=saved_w)
         self.main_pw.add(content, minsize=600)
 
-        # Save sidebar width on sash drag
         self.main_pw.bind("<ButtonRelease-1>", self._on_sash_release)
 
     def _on_sash_release(self, event=None):
-        """Persist sidebar width when user drags the sash."""
         try:
             coords = self.main_pw.sash_coord(0)
             if coords:
@@ -293,7 +312,13 @@ class EVEApp(tk.Tk):
         except Exception:
             pass
 
-    # ── Character management ─────────────────────────────
+    # ── Notification toggle ───────────────────────────────────────────────────
+    def _on_notif_toggle(self) -> None:
+        enabled = self._notif_var.get()
+        self._notif_monitor.set_enabled(enabled)
+        self._save_setting("notifications_enabled", enabled)
+
+    # ── Character management ──────────────────────────────────────────────────
     def _load_characters(self) -> None:
         for item in self.char_tree.get_children():
             self.char_tree.delete(item)
@@ -310,7 +335,7 @@ class EVEApp(tk.Tk):
     def _on_char_select(self, event: tk.Event) -> None:
         sel = self.char_tree.selection()
         if sel:
-            idx = int(sel[0])
+            idx   = int(sel[0])
             chars = self.controller.characters
             if idx < len(chars):
                 char = chars[idx]
@@ -335,7 +360,7 @@ class EVEApp(tk.Tk):
         if not sel:
             messagebox.showwarning("Warning", "No character selected")
             return
-        idx = int(sel[0])
+        idx   = int(sel[0])
         chars = self.controller.characters
         if idx >= len(chars):
             return
@@ -357,14 +382,11 @@ class EVEApp(tk.Tk):
                 messagebox.showerror("Error", "Failed to remove character.")
 
     def _refresh_data(self) -> None:
-        """Trigger an async data refresh — ESI calls run in a background thread."""
         if not self.controller.current_char_id:
             return
-
         self.cache_status_var.set("Syncing…")
 
         def _on_success(data: CharacterData) -> None:
-            # Schedule UI update on the main thread
             self.after(0, lambda: self._apply_refresh_result(data))
 
         def _on_error(msg: str) -> None:
@@ -373,7 +395,6 @@ class EVEApp(tk.Tk):
         self.controller.refresh_data_async(_on_success, _on_error)
 
     def _apply_refresh_result(self, data: CharacterData) -> None:
-        """Apply fetched data to UI widgets (runs on main thread)."""
         if data.skills:
             self.current_skills = data.skills
             self.skill_view.set_skills(self.current_skills)
@@ -385,34 +406,34 @@ class EVEApp(tk.Tk):
             self.queue_view.set_queue(self.current_queue, data.attributes or None)
 
         if data.attributes:
+            self.current_attrs = data.attributes
             a = data.attributes
             i = a.get("intelligence", 0)
-            m = a.get("memory", 0)
-            p = a.get("perception", 0)
-            w = a.get("willpower", 0)
-            c = a.get("charisma", 0)
+            m = a.get("memory",       0)
+            p = a.get("perception",   0)
+            w = a.get("willpower",    0)
+            c = a.get("charisma",     0)
             self.queue_view.sp_min_var.set(
                 f"Attributes: INT:{i} MEM:{m} PER:{p} WIL:{w} CHA:{c}")
 
         self.cache_status_var.set("Data synced with ESI")
 
     def _apply_refresh_error(self, msg: str) -> None:
-        """Handle refresh failure (runs on main thread)."""
         self.cache_status_var.set("Offline / Error")
         logger.error("Refresh failed: %s", msg)
 
-    # ── Export ───────────────────────────────────────────
+    # ── Export ────────────────────────────────────────────────────────────────
     def _on_export(self, fmt: str) -> None:
         if not self.controller.current_char_id:
             messagebox.showwarning("Warning", "Select a character first")
             return
 
         char_name = self.char_title_var.get().replace(" ", "_")
-        scope = self.export_scope.get()
+        scope     = self.export_scope.get()
         scope_map = {
-            "All Skills": "skills_all",
+            "All Skills":      "skills_all",
             "Filtered Skills": "skills_filtered",
-            "Skill Queue": "queue"
+            "Skill Queue":     "queue",
         }
         data_type = scope_map.get(scope, "data")
 
@@ -424,7 +445,7 @@ class EVEApp(tk.Tk):
             data = []
             for q in self.current_queue:
                 qc = q.copy()
-                qc["name"] = skills_db.get_skill_name(q.get("skill_id"))
+                qc["name"]     = skills_db.get_skill_name(q.get("skill_id"))
                 qc["category"] = skills_db.get_skill_category(q.get("skill_id")) or "Other"
                 data.append(qc)
         else:
@@ -435,22 +456,32 @@ class EVEApp(tk.Tk):
                                              data, tk_root=self)
             if res:
                 messagebox.showinfo("Export", res)
-        elif fmt == "csv":
-            ts = datetime.now().strftime("%Y%m%d")
-            fname = f"{char_name}_{data_type}_{ts}"
-            path = filedialog.asksaveasfilename(
-                initialdir="exports",
-                initialfile=f"{fname}.csv",
-                defaultextension=".csv",
-                filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")],
-                title="Save Export As")
-            if path:
-                res = self.export_manager.export(char_name, data_type, "CSV",
-                                                 data, full_path=path)
-                if res:
-                    messagebox.showinfo("Export", res)
+            return
 
-    # ── Misc ─────────────────────────────────────────────
+        # File-based formats
+        ext_map = {"csv": ("CSV Files", "*.csv"), "markdown": ("Markdown", "*.md"),
+                   "html": ("HTML Files", "*.html")}
+        file_desc, file_ext = ext_map.get(fmt, ("All Files", "*.*"))
+        ts    = datetime.now().strftime("%Y%m%d")
+        fname = f"{char_name}_{data_type}_{ts}"
+        path  = filedialog.asksaveasfilename(
+            initialdir=str(PathManager.get_export_dir()),
+            initialfile=f"{fname}.{fmt if fmt != 'markdown' else 'md'}",
+            defaultextension=f".{fmt if fmt != 'markdown' else 'md'}",
+            filetypes=[(file_desc, file_ext), ("All Files", "*.*")],
+            title="Save Export As",
+        )
+        if path:
+            res = self.export_manager.export(char_name, data_type, fmt,
+                                             data, full_path=path)
+            if res:
+                messagebox.showinfo("Export", res)
+
+    # ── Calculator popup ──────────────────────────────────────────────────────
+    def _open_calculator(self) -> None:
+        CalcWindow(self, self.current_attrs)
+
+    # ── Misc ──────────────────────────────────────────────────────────────────
     def _open_skill_plan(self) -> None:
         SkillPlanManager(self, self.current_skills)
 
@@ -458,77 +489,251 @@ class EVEApp(tk.Tk):
         top = tk.Toplevel(self)
         top.title("About")
         top.resizable(True, True)
-        
-        # Apply theme colors roughly
-        bg = "#1c2230" 
-        fg = "#e0e0e0"
+
+        bg     = "#1c2230"
+        fg     = "#e0e0e0"
         accent = "#3aa8d0"
-            
+
         top.configure(bg=bg)
-        
-        # Main container with padding
         main_f = tk.Frame(top, bg=bg, padx=30, pady=25)
         main_f.pack(fill=tk.BOTH, expand=True)
-        
-        # Header
-        tk.Label(main_f, text="Personal Skill Monitor", 
+
+        tk.Label(main_f, text="Personal Skill Monitor",
                  font=("Segoe UI", 16, "bold"), fg=accent, bg=bg).pack(pady=(0, 5))
-        
-        tk.Label(main_f, text="v0.2.1", 
+        tk.Label(main_f, text="v0.3.0",
                  font=("Segoe UI", 10), fg="#888888", bg=bg).pack(pady=(0, 20))
-        
-        # Description
+
         desc = ("Lightweight EVE Online skill management tool.\n"
                 "Track skills, view queue, and plan your training.")
-        tk.Label(main_f, text=desc, font=("Segoe UI", 10), 
+        tk.Label(main_f, text=desc, font=("Segoe UI", 10),
                  fg=fg, bg=bg, justify=tk.CENTER, wraplength=400).pack(pady=10)
-                 
-        # Links Frame
+
         links = tk.Frame(main_f, bg=bg)
         links.pack(pady=20)
-        
-        # GitHub
+
         def open_github(e=None):
             webbrowser.open("https://github.com/Fridman86/Personal-Skill-Monitor")
-            
-        lbl_git = tk.Label(links, text="GitHub Repository", 
-                           font=("Segoe UI", 10, "underline"), 
+
+        lbl_git = tk.Label(links, text="GitHub Repository",
+                           font=("Segoe UI", 10, "underline"),
                            fg=accent, bg=bg, cursor="hand2")
         lbl_git.pack(pady=5)
         lbl_git.bind("<Button-1>", open_github)
-        
-        # Buy Me a Coffee
+
         def open_coffee(e=None):
             webbrowser.open("https://buymeacoffee.com/ifridman")
-            
-        # Coffee container
+
         coffee_frame = tk.Frame(links, bg="#FFDD00", padx=15, pady=8, cursor="hand2")
         coffee_frame.pack(pady=(15, 0))
-        
         lbl_coffee = tk.Label(coffee_frame, text="☕ Buy me a coffee",
-                              font=("Cookie", 12, "bold") if "Cookie" in tkfont.families() else ("Segoe UI", 11, "bold"),
+                              font=("Cookie", 12, "bold") if "Cookie" in tkfont.families()
+                              else ("Segoe UI", 11, "bold"),
                               fg="#000000", bg="#FFDD00", cursor="hand2")
         lbl_coffee.pack()
-        
         coffee_frame.bind("<Button-1>", open_coffee)
         lbl_coffee.bind("<Button-1>", open_coffee)
-        
-        # Close button at the bottom
+
         btn_close = tk.Button(main_f, text="Close", command=top.destroy,
-                              bg="#2a3044", fg=fg, bd=0, padx=20, pady=5, cursor="hand2")
+                              bg="#2a3044", fg=fg, bd=0, padx=20, pady=5,
+                              cursor="hand2")
         btn_close.pack(pady=(30, 0))
 
-        # Center on screen
         top.update_idletasks()
         top.minsize(top.winfo_reqwidth(), top.winfo_reqheight())
-        
         w = top.winfo_reqwidth()
         h = top.winfo_reqheight()
-        x = self.winfo_x() + (self.winfo_width() // 2) - (w // 2)
+        x = self.winfo_x() + (self.winfo_width()  // 2) - (w // 2)
         y = self.winfo_y() + (self.winfo_height() // 2) - (h // 2)
         top.geometry(f"+{x}+{y}")
 
     def _on_quit(self) -> None:
         if messagebox.askyesno("Exit", "Exit Personal Skill Monitor?"):
+            self._notif_monitor.stop()
             self.destroy()
 
+
+# ── Training Time Calculator Window ──────────────────────────────────────────
+
+class CalcWindow(tk.Toplevel):
+    """
+    Popup calculator for estimating skill training time.
+
+    Shows:
+      • Skill selector (searchable combobox)
+      • From / To level spinboxes
+      • Live attribute display (from last ESI fetch)
+      • Calculated time per level and cumulative total
+    """
+
+    _ALL_SKILLS: list[str] | None = None  # cached sorted list
+
+    def __init__(self, parent: EVEApp, attributes: dict) -> None:
+        super().__init__(parent)
+        self.parent_app = parent
+        self.attributes = attributes or {}
+
+        self.title("Training Time Calculator")
+        self.geometry("520x480")
+        self.minsize(460, 400)
+        self.resizable(True, True)
+        self.configure(bg=BG_MAIN)
+
+        if CalcWindow._ALL_SKILLS is None:
+            CalcWindow._ALL_SKILLS = sorted(
+                name for sid, (name, grp, cat) in skills_db.SKILLS.items()
+                if name != str(sid)
+            )
+
+        self._build_ui()
+        self.transient(parent)
+        self.focus_set()
+
+    def _build_ui(self) -> None:
+        # ── Header ──
+        hdr = tk.Frame(self, bg=BG_PANEL)
+        hdr.pack(fill=tk.X)
+        tk.Label(hdr, text="⏱  Training Time Calculator",
+                 font=("Segoe UI", 13, "bold"),
+                 fg=FG_BRIGHT, bg=BG_PANEL).pack(side=tk.LEFT, padx=15, pady=12)
+        tk.Frame(self, bg=BORDER, height=1).pack(fill=tk.X)
+
+        body = tk.Frame(self, bg=BG_MAIN, padx=20, pady=15)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        # ── Skill selector ──
+        tk.Label(body, text="Skill:", font=("Segoe UI", 10),
+                 fg=FG_DEFAULT, bg=BG_MAIN).grid(row=0, column=0, sticky=tk.W, pady=6)
+        self._skill_var = tk.StringVar()
+        skill_cb = ttk.Combobox(body, textvariable=self._skill_var,
+                                values=CalcWindow._ALL_SKILLS, width=34)
+        skill_cb.grid(row=0, column=1, columnspan=3, sticky=tk.W, padx=8, pady=6)
+        skill_cb.bind("<<ComboboxSelected>>", lambda e: self._recalc())
+        skill_cb.bind("<KeyRelease>", self._on_skill_key)
+        Tooltip(skill_cb, "Start typing to filter skills.\nSelect to calculate training time.")
+
+        # ── From / To levels ──
+        tk.Label(body, text="From level:", font=("Segoe UI", 10),
+                 fg=FG_DEFAULT, bg=BG_MAIN).grid(row=1, column=0, sticky=tk.W, pady=6)
+        self._from_var = tk.IntVar(value=0)
+        from_spin = ttk.Spinbox(body, from_=0, to=4, textvariable=self._from_var,
+                                width=5, state="readonly",
+                                command=self._recalc)
+        from_spin.grid(row=1, column=1, sticky=tk.W, padx=8)
+
+        tk.Label(body, text="To level:", font=("Segoe UI", 10),
+                 fg=FG_DEFAULT, bg=BG_MAIN).grid(row=1, column=2, sticky=tk.W, padx=(20, 0))
+        self._to_var = tk.IntVar(value=5)
+        to_spin = ttk.Spinbox(body, from_=1, to=5, textvariable=self._to_var,
+                              width=5, state="readonly",
+                              command=self._recalc)
+        to_spin.grid(row=1, column=3, sticky=tk.W, padx=8)
+
+        # ── Attributes display ──
+        tk.Frame(body, bg=BORDER, height=1).grid(
+            row=2, column=0, columnspan=4, sticky=tk.EW, pady=12)
+
+        tk.Label(body, text="Character Attributes",
+                 font=("Segoe UI", 9, "bold"), fg=FG_TEAL, bg=BG_MAIN).grid(
+            row=3, column=0, columnspan=4, sticky=tk.W)
+
+        self._attr_var = tk.StringVar(value=self._fmt_attrs())
+        tk.Label(body, textvariable=self._attr_var,
+                 font=("Segoe UI", 9), fg=FG_DIM, bg=BG_MAIN).grid(
+            row=4, column=0, columnspan=4, sticky=tk.W, pady=(2, 12))
+
+        if not self.attributes:
+            tk.Label(body, text="⚠  No attributes loaded — refresh data first.",
+                     font=("Segoe UI", 9, "italic"), fg="#e08040", bg=BG_MAIN).grid(
+                row=5, column=0, columnspan=4, sticky=tk.W)
+
+        # ── Results ──
+        tk.Frame(body, bg=BORDER, height=1).grid(
+            row=6, column=0, columnspan=4, sticky=tk.EW, pady=8)
+
+        tk.Label(body, text="Results",
+                 font=("Segoe UI", 9, "bold"), fg=FG_TEAL, bg=BG_MAIN).grid(
+            row=7, column=0, columnspan=4, sticky=tk.W)
+
+        self._result_frame = tk.Frame(body, bg=BG_MAIN)
+        self._result_frame.grid(row=8, column=0, columnspan=4, sticky=tk.EW, pady=4)
+
+        self._result_var = tk.StringVar(value="Select a skill to calculate.")
+        tk.Label(body, textvariable=self._result_var,
+                 font=("Segoe UI", 10), fg=FG_BRIGHT, bg=BG_MAIN,
+                 justify=tk.LEFT, wraplength=440).grid(
+            row=9, column=0, columnspan=4, sticky=tk.W, pady=4)
+
+        # ── SP/min info ──
+        self._spm_var = tk.StringVar(value="")
+        tk.Label(body, textvariable=self._spm_var,
+                 font=("Segoe UI", 9, "italic"), fg=FG_DIM, bg=BG_MAIN).grid(
+            row=10, column=0, columnspan=4, sticky=tk.W)
+
+        body.columnconfigure(1, weight=1)
+
+    def _fmt_attrs(self) -> str:
+        if not self.attributes:
+            return "Not loaded"
+        a = self.attributes
+        return (f"INT:{a.get('intelligence',0)}  MEM:{a.get('memory',0)}  "
+                f"PER:{a.get('perception',0)}  WIL:{a.get('willpower',0)}  "
+                f"CHA:{a.get('charisma',0)}")
+
+    def _on_skill_key(self, event: tk.Event) -> None:
+        """Filter combobox list as user types."""
+        typed = self._skill_var.get().lower()
+        if not typed:
+            filtered = CalcWindow._ALL_SKILLS
+        else:
+            filtered = [s for s in CalcWindow._ALL_SKILLS if typed in s.lower()]
+        event.widget["values"] = filtered
+        self._recalc()
+
+    def _recalc(self) -> None:
+        skill_name = self._skill_var.get().strip()
+        from_lvl   = self._from_var.get()
+        to_lvl     = self._to_var.get()
+
+        if not skill_name or skill_name not in (CalcWindow._ALL_SKILLS or []):
+            self._result_var.set("Select a valid skill.")
+            self._spm_var.set("")
+            return
+
+        if from_lvl >= to_lvl:
+            self._result_var.set("'From' level must be less than 'To' level.")
+            self._spm_var.set("")
+            return
+
+        attrs = self.attributes
+        if not attrs:
+            # Use default 20 for all attributes if not loaded
+            attrs = {k: 20 for k in
+                     ("intelligence", "memory", "perception", "willpower", "charisma")}
+
+        # Per-level breakdown
+        lines = []
+        total_secs = 0.0
+        rank = get_skill_rank(skill_name)
+
+        for lvl in range(from_lvl + 1, to_lvl + 1):
+            secs = training_time(skill_name, lvl - 1, lvl, attrs)
+            total_secs += secs
+            sp_needed = (_SP_PER_LEVEL.get(lvl, 0) - _SP_PER_LEVEL.get(lvl - 1, 0)) * rank
+            sp_needed = max(0, sp_needed)
+            lines.append(
+                f"  Level {lvl - 1} → {lvl}:  {format_duration(secs)}"
+                f"  ({sp_needed:,} SP)"
+            )
+
+        lines.append(f"\n  ─────────────────────────────")
+        lines.append(f"  Total:  {format_duration(total_secs)}")
+
+        self._result_var.set("\n".join(lines))
+
+        # SP/min info
+        from src.utils.calculator import sp_per_minute
+        spm = sp_per_minute(attrs, skill_name)
+        self._spm_var.set(
+            f"SP/min: {spm:.1f}  |  Rank: {rank}  |  "
+            f"Attributes used: {self._fmt_attrs()}"
+        )

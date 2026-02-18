@@ -1,2 +1,8 @@
 requests
 python-dotenv
+rapidfuzz
+plyer
+
+# Dev / testing
+pytest
+pytest-cov
