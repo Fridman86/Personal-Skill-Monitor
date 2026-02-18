@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,14 @@ from typing import Any
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, font as tkfont
+
+# ── System tray (optional) ────────────────────────────────────────────────────
+try:
+    import pystray
+    from PIL import Image as _PILImage
+    _TRAY_AVAILABLE = True
+except ImportError:
+    _TRAY_AVAILABLE = False
 
 from src.core.controller import AppController, CharacterData
 from src.core.notifications import NotificationMonitor
@@ -70,12 +79,21 @@ class EVEApp(tk.Tk):
         )
         self._notif_monitor.start()
 
+        # Tray state
+        self._tray_icon: "pystray.Icon | None" = None
+        self._tray_thread: threading.Thread | None = None
+        self._is_quitting: bool = False
+
         self._setup_ui()
         self._apply_style()
         self._load_characters()
+        self._setup_tray()
 
-        # Stop monitor on close
-        self.protocol("WM_DELETE_WINDOW", self._on_quit)
+        # Close button behaviour: minimize to tray if available, else confirm quit
+        if _TRAY_AVAILABLE:
+            self.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
+        else:
+            self.protocol("WM_DELETE_WINDOW", self._on_quit)
 
     # ── Settings ─────────────────────────────────────────────────────────────
     def _load_setting(self, key: str, default: Any = None) -> Any:
@@ -546,9 +564,114 @@ class EVEApp(tk.Tk):
         y = self.winfo_y() + (self.winfo_height() // 2) - (h // 2)
         top.geometry(f"+{x}+{y}")
 
+    # ── Tray ──────────────────────────────────────────────────────────────────
+
+    def _setup_tray(self) -> None:
+        """Create and start the system tray icon in a daemon thread."""
+        if not _TRAY_AVAILABLE:
+            return
+        try:
+            image = self._build_tray_icon()
+            menu  = pystray.Menu(
+                pystray.MenuItem("Show",  self._restore_from_tray, default=True),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("Quit",  self._quit_from_tray),
+            )
+            self._tray_icon = pystray.Icon(
+                "PSM", image,
+                "Personal Skill Monitor",
+                menu,
+            )
+            self._tray_thread = threading.Thread(
+                target=self._tray_icon.run,
+                name="TrayThread",
+                daemon=True,
+            )
+            self._tray_thread.start()
+        except Exception as exc:
+            logger.warning("Tray setup failed: %s", exc)
+            self._tray_icon = None
+
+    def _build_tray_icon(self) -> "_PILImage.Image":
+        """Return a PIL Image for the tray icon (EVE teal on dark background)."""
+        size = 64
+        img  = _PILImage.new("RGBA", (size, size), (0, 0, 0, 0))
+
+        # Try to load the application icon first
+        icon_path = PathManager.get_icon_path()
+        if icon_path.exists():
+            try:
+                loaded = _PILImage.open(str(icon_path)).convert("RGBA")
+                return loaded.resize((size, size), _PILImage.LANCZOS)
+            except Exception:
+                pass
+
+        # Fallback: draw a simple coloured circle
+        try:
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(img)
+            draw.ellipse([4, 4, size - 4, size - 4], fill=(58, 168, 208, 255))
+            draw.ellipse([16, 16, size - 16, size - 16], fill=(13, 17, 23, 255))
+        except Exception:
+            pass
+        return img
+
+    def _minimize_to_tray(self) -> None:
+        """Hide the main window and show a tray balloon (if supported)."""
+        if self._tray_icon is None:
+            # Tray not available — fall back to normal quit
+            self._on_quit()
+            return
+        self.withdraw()
+        try:
+            self._tray_icon.notify(
+                "Personal Skill Monitor is running in the background.",
+                "PSM minimized to tray",
+            )
+        except Exception:
+            pass  # notify() not supported on all platforms
+
+    def _restore_from_tray(self, icon=None, item=None) -> None:
+        """Restore the main window from the system tray."""
+        self.after(0, self._do_restore)
+
+    def _do_restore(self) -> None:
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _quit_from_tray(self, icon=None, item=None) -> None:
+        """Quit the application from the tray menu (no confirmation dialog)."""
+        self._is_quitting = True
+        self.after(0, self._do_quit)
+
+    def _do_quit(self) -> None:
+        self._notif_monitor.stop()
+        if self._tray_icon:
+            try:
+                self._tray_icon.stop()
+            except Exception:
+                pass
+        self.destroy()
+
     def _on_quit(self) -> None:
-        if messagebox.askyesno("Exit", "Exit Personal Skill Monitor?"):
+        """Called by the Quit sidebar button (with confirmation dialog)."""
+        # Guard: if window is already being destroyed, skip the dialog
+        if self._is_quitting:
+            return
+        try:
+            answer = messagebox.askyesno("Exit", "Exit Personal Skill Monitor?")
+        except tk.TclError:
+            # Window was destroyed before dialog could open
+            answer = True
+        if answer:
+            self._is_quitting = True
             self._notif_monitor.stop()
+            if self._tray_icon:
+                try:
+                    self._tray_icon.stop()
+                except Exception:
+                    pass
             self.destroy()
 
 

@@ -11,6 +11,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### System Tray
+- **Minimize to tray** instead of quitting when the window close button (✕) is clicked.
+- Tray icon appears in the taskbar notification area with a context menu:
+  - **Show** (default action / double-click) — restores the main window.
+  - **Quit** — fully exits the application without a confirmation dialog.
+- Icon loaded from the application's PNG asset; falls back to a generated teal circle if unavailable.
+- Tray runs in a dedicated daemon thread (`TrayThread`) via `pystray.Icon.run()`.
+- Gracefully disabled if `pystray` or `Pillow` are not installed (app behaves as before).
+- New methods: `_setup_tray`, `_build_tray_icon`, `_minimize_to_tray`, `_restore_from_tray`, `_do_restore`, `_quit_from_tray`, `_do_quit`.
+
 #### Search & Filtering
 - **Fuzzy search** in the Skills View (`rapidfuzz` library).
   - Partial name matching with `partial_ratio` algorithm (threshold 72%).
@@ -123,12 +133,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - **`requirements.txt`**:
   - Added `rapidfuzz` (fuzzy search).
   - Added `plyer` (desktop notifications).
+  - Added `pystray` and `Pillow` (system tray).
   - Added `pytest` and `pytest-cov` (testing).
 
 ### Fixed
 
+- **`TclError: can't invoke "grab" command: application has been destroyed`** — crash when clicking the window ✕ button while the app was already shutting down. Fixed by:
+  - Wrapping `messagebox.askyesno()` in a `try/except tk.TclError` block.
+  - Adding `_is_quitting` flag to prevent re-entrant quit calls.
+  - Binding `WM_DELETE_WINDOW` to `_minimize_to_tray` (when tray is available) instead of `_on_quit`.
 - ESI requests no longer silently fail on transient server errors — they now retry automatically.
 - Token refresh on 401 is now a single immediate retry (unchanged), while 5xx errors use the new back-off retry loop.
+
 
 ---
 

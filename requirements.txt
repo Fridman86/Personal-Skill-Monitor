@@ -2,6 +2,8 @@ requests
 python-dotenv
 rapidfuzz
 plyer
+pystray
+Pillow
 
 # Dev / testing
 pytest
