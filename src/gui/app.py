@@ -10,6 +10,10 @@ from typing import Any
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, font as tkfont
+import requests
+
+APP_VERSION = "v0.3.1"
+GITHUB_REPO = "Fridman86/Personal-Skill-Monitor"
 
 # ── System tray (optional) ────────────────────────────────────────────────────
 try:
@@ -51,8 +55,9 @@ class EVEApp(tk.Tk):
         self.controller     = AppController(config)
         self.export_manager = ExportManager()
 
-        self.title("Personal Skill Monitor")
+        self.title(f"Personal Skill Monitor {APP_VERSION}")
         self.geometry("1200x780")
+
         self.minsize(950, 650)
 
         # Window icon
@@ -94,6 +99,10 @@ class EVEApp(tk.Tk):
             self.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
         else:
             self.protocol("WM_DELETE_WINDOW", self._on_quit)
+
+        # Check for updates on startup after 2 seconds
+        self.after(2000, lambda: threading.Thread(target=self._check_for_updates, daemon=True).start())
+
 
     # ── Settings ─────────────────────────────────────────────────────────────
     def _load_setting(self, key: str, default: Any = None) -> Any:
@@ -518,7 +527,7 @@ class EVEApp(tk.Tk):
 
         tk.Label(main_f, text="Personal Skill Monitor",
                  font=("Segoe UI", 16, "bold"), fg=accent, bg=bg).pack(pady=(0, 5))
-        tk.Label(main_f, text="v0.3.0",
+        tk.Label(main_f, text=APP_VERSION,
                  font=("Segoe UI", 10), fg="#888888", bg=bg).pack(pady=(0, 20))
 
         desc = ("Lightweight EVE Online skill management tool.\n"
@@ -530,13 +539,23 @@ class EVEApp(tk.Tk):
         links.pack(pady=20)
 
         def open_github(e=None):
-            webbrowser.open("https://github.com/Fridman86/Personal-Skill-Monitor")
+            webbrowser.open(f"https://github.com/{GITHUB_REPO}")
 
         lbl_git = tk.Label(links, text="GitHub Repository",
                            font=("Segoe UI", 10, "underline"),
                            fg=accent, bg=bg, cursor="hand2")
         lbl_git.pack(pady=5)
         lbl_git.bind("<Button-1>", open_github)
+
+        # Update button
+        def check_now():
+            progress = tk.Label(links, text="Checking...", font=("Segoe UI", 9), fg=FG_TEAL, bg=bg)
+            progress.pack(pady=5)
+            threading.Thread(target=self._check_for_updates, args=(True, progress), daemon=True).start()
+
+        btn_update = tk.Button(links, text="Check for Updates", command=check_now,
+                               bg="#2a3044", fg=fg, bd=0, padx=10, pady=3, cursor="hand2")
+        btn_update.pack(pady=10)
 
         def open_coffee(e=None):
             webbrowser.open("https://buymeacoffee.com/ifridman")
@@ -563,6 +582,35 @@ class EVEApp(tk.Tk):
         x = self.winfo_x() + (self.winfo_width()  // 2) - (w // 2)
         y = self.winfo_y() + (self.winfo_height() // 2) - (h // 2)
         top.geometry(f"+{x}+{y}")
+
+    # ── Update Checking ────────────────────────────────────────────────────────
+
+    def _check_for_updates(self, manual: bool = False, status_lbl: tk.Label = None) -> None:
+        """Fetch latest release from GitHub and compare versions."""
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                latest_tag = data.get("tag_name", "")
+                
+                # Simple version comparison (e.g. v0.3.1 vs v0.3.0)
+                if latest_tag and latest_tag != APP_VERSION:
+                    self.after(0, lambda: self._show_update_notification(latest_tag, data.get("html_url")))
+                elif manual and status_lbl:
+                    self.after(0, lambda: status_lbl.config(text="You have the latest version.", fg=FG_BRIGHT))
+            elif manual and status_lbl:
+                self.after(0, lambda: status_lbl.config(text="Update check failed.", fg="#ff4444"))
+        except Exception as e:
+            logger.warning("Update check failed: %s", e)
+            if manual and status_lbl:
+                self.after(0, lambda: status_lbl.config(text="Network error.", fg="#ff4444"))
+
+    def _show_update_notification(self, version: str, url: str) -> None:
+        """Show a non-blocking notification or messagebox about the new version."""
+        msg = f"A new version is available: {version}\n\nWould you like to visit the download page?"
+        if messagebox.askyesno("Update Available", msg):
+            webbrowser.open(url)
 
     # ── Tray ──────────────────────────────────────────────────────────────────
 

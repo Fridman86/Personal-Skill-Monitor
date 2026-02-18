@@ -7,9 +7,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [v0.3.0] — 2026-02-18
+## [v0.3.1] — 2026-02-18
 
 ### Added
+
+#### Auto-Updates
+- **"Check for Updates"** system (via GitHub API).
+  - Background check on startup (2s delay).
+  - Manual check button in the **About** dialog.
+  - Non-blocking notification if a newer version is available on GitHub.
+  - Direct link to the download page.
 
 #### System Tray
 - **Minimize to tray** instead of quitting when the window close button (✕) is clicked.

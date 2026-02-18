@@ -14,7 +14,7 @@ The app is aimed at capsuleers who want a quick overview of their training witho
 
 ***
 
-## What's New in v0.3.0
+## What's New in v0.3.1
 
 > **Full changelog:** [CHANGELOG.md](CHANGELOG.md)
 
@@ -25,6 +25,7 @@ The app is aimed at capsuleers who want a quick overview of their training witho
 - 🔔 **Skill Completion Notifications** — desktop alerts when a skill is about to finish
 - 🔁 **ESI Retry Logic** — automatic retries on server errors (429/5xx) with back-off
 - 🗕 **System Tray** — minimize to tray instead of closing; restore or quit from tray icon
+- 🔄 **Update Checker** — check for new versions on GitHub directly from the app
 - 🧪 **51 Unit Tests** — full test coverage for core modules
 - ⚙️ **GitHub Actions CI** — automated testing on Python 3.10 / 3.11 / 3.12
 
@@ -232,7 +233,7 @@ Personal-Skill-Monitor/
 │   │   └── skill_prerequisites.py   # Prerequisite resolution
 │   │
 │   ├── gui/
-│   │   ├── app.py                   # Main window, system tray, CalcWindow popup
+│   │   ├── app.py                   # Main window, system tray, update checker, CalcWindow
 │   │   └── components/
 │   │       ├── skill_view.py        # Skills table + fuzzy search + filters
 │   │       ├── queue_view.py        # Skill queue table
