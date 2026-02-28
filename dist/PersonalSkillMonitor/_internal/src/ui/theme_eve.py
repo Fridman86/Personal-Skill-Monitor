@@ -212,3 +212,19 @@ def setup_eve_dark_theme(style: ttk.Style):
                     foreground=FG_DEFAULT,
                     arrowcolor=FG_TEAL,
                     padding=3)
+
+
+# ── Alternative built-in themes ──────────────────────────
+# Used by EVEApp._apply_style() so that colours are not scattered in the GUI.
+
+DARK_THEME = {
+    "bg": "#2d2d2d",
+    "fg": "#ffffff",
+    "heading_bg": "#3d3d3d",
+    "select_bg": "#4a4a4a",
+}
+
+LIGHT_THEME = {
+    "bg": "#f5f5f5",
+    "fg": "#333333",
+}

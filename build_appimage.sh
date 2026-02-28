@@ -3,7 +3,7 @@ set -e
 
 # Configuration
 APP_NAME="PersonalSkillMonitor"
-VERSION="0.2.0"
+VERSION="0.3.1"
 DIST_DIR="dist"
 BUILD_DIR="build"
 
